@@ -161,11 +161,11 @@ class ImageViewer(QGraphicsView):
             y = int(scene_pos.y())
             self.mouse_moved.emit(x, y)
             
-    def apply_transformation(self, transform_func, *args):
+    def apply_transformation(self, transform_func, *args) -> None:
         """Apply transformation to current image (non-destructive).
         
         Args:
-            transform_func: Function to apply to image
+            transform_func: Function to apply to image (takes Image.Image, returns Image.Image)
             *args: Arguments to pass to transform function
         """
         if self.current_image is None:

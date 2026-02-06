@@ -381,11 +381,17 @@ class MainWindow(QMainWindow):
             self.image_viewer.apply_transformation(adjust_contrast, factor)
             
     def rotate_clockwise(self) -> None:
-        """Rotate image 90 degrees clockwise."""
+        """Rotate image 90 degrees clockwise.
+        
+        Note: PIL's rotate() uses counter-clockwise angles, so we use -90 for CW rotation.
+        """
         self.image_viewer.apply_transformation(rotate_image, -90)
         
     def rotate_counterclockwise(self) -> None:
-        """Rotate image 90 degrees counter-clockwise."""
+        """Rotate image 90 degrees counter-clockwise.
+        
+        Note: PIL's rotate() uses counter-clockwise angles, so we use 90 for CCW rotation.
+        """
         self.image_viewer.apply_transformation(rotate_image, 90)
         
     def rotate_180(self) -> None:
