@@ -1,24 +1,69 @@
-"""Image loading functions for various formats."""
+"""Image file loading utilities."""
 
-from typing import Optional
+from typing import Optional, List
 import numpy as np
 from pathlib import Path
+from PIL import Image
 
 
-def load_image(filepath: Path) -> Optional[np.ndarray]:
-    """Load an image from file.
-    
-    Supports common formats: PNG, JPEG, TIFF, BMP, etc.
+SUPPORTED_FORMATS = [
+    "*.tif", "*.tiff",  # TIFF (common for scientific imaging)
+    "*.png",            # PNG
+    "*.jpg", "*.jpeg",  # JPEG
+    "*.bmp",            # BMP
+    "*.gif"             # GIF
+]
+
+
+def load_image(filepath: str) -> Optional[Image.Image]:
+    """Load an image file.
     
     Args:
         filepath: Path to image file
         
     Returns:
-        Image data as numpy array, or None if loading fails
+        PIL Image if successful, None if failed
     """
-    pass
+    try:
+        image = Image.open(filepath)
+        # Convert to RGB if needed (handles RGBA, grayscale, etc.)
+        if image.mode not in ('RGB', 'L'):
+            image = image.convert('RGB')
+        return image
+    except Exception as e:
+        print(f"Error loading image: {e}")
+        return None
 
 
+def get_image_info(image: Image.Image) -> dict:
+    """Get information about an image.
+    
+    Args:
+        image: PIL Image
+        
+    Returns:
+        Dictionary with image metadata (size, mode, format, etc.)
+    """
+    info = {
+        'width': image.width,
+        'height': image.height,
+        'mode': image.mode,
+        'format': image.format,
+        'size': image.size
+    }
+    return info
+
+
+def get_supported_formats() -> List[str]:
+    """Get list of supported image formats for file dialogs.
+    
+    Returns:
+        List of file extension patterns
+    """
+    return SUPPORTED_FORMATS
+
+
+# Legacy numpy-based functions kept for backward compatibility
 def load_tiff_stack(filepath: Path) -> Optional[np.ndarray]:
     """Load a multi-page TIFF stack.
     

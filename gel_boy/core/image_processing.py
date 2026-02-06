@@ -1,9 +1,80 @@
-"""Image processing and manipulation functions."""
+"""Core image processing functions for gel analysis."""
 
 from typing import Optional, Tuple
 import numpy as np
+from PIL import Image, ImageOps, ImageEnhance
 
 
+def rotate_image(image: Image.Image, angle: int) -> Image.Image:
+    """Rotate image by specified angle.
+    
+    Args:
+        image: PIL Image to rotate
+        angle: Rotation angle (90, 180, 270, or -90)
+        
+    Returns:
+        Rotated PIL Image
+    """
+    return image.rotate(-angle, expand=True)
+
+
+def flip_image(image: Image.Image, horizontal: bool = True) -> Image.Image:
+    """Flip image horizontally or vertically.
+    
+    Args:
+        image: PIL Image to flip
+        horizontal: If True, flip horizontally, else vertically
+        
+    Returns:
+        Flipped PIL Image
+    """
+    if horizontal:
+        return ImageOps.mirror(image)
+    else:
+        return ImageOps.flip(image)
+
+
+def invert_image(image: Image.Image) -> Image.Image:
+    """Invert image colors (create negative).
+    
+    Args:
+        image: PIL Image to invert
+        
+    Returns:
+        Inverted PIL Image
+    """
+    return ImageOps.invert(image.convert('RGB'))
+
+
+def adjust_brightness(image: Image.Image, factor: float) -> Image.Image:
+    """Adjust image brightness.
+    
+    Args:
+        image: PIL Image to adjust
+        factor: Brightness factor (1.0 = original, <1.0 darker, >1.0 brighter)
+        
+    Returns:
+        Brightness-adjusted PIL Image
+    """
+    enhancer = ImageEnhance.Brightness(image)
+    return enhancer.enhance(factor)
+
+
+def adjust_contrast(image: Image.Image, factor: float) -> Image.Image:
+    """Adjust image contrast.
+    
+    Args:
+        image: PIL Image to adjust
+        factor: Contrast factor (1.0 = original, <1.0 less contrast, >1.0 more contrast)
+        
+    Returns:
+        Contrast-adjusted PIL Image
+    """
+    enhancer = ImageEnhance.Contrast(image)
+    return enhancer.enhance(factor)
+
+
+# Legacy numpy-based functions kept for backward compatibility
 def apply_gaussian_blur(image: np.ndarray, sigma: float = 1.0) -> np.ndarray:
     """Apply Gaussian blur to an image.
     
@@ -13,57 +84,6 @@ def apply_gaussian_blur(image: np.ndarray, sigma: float = 1.0) -> np.ndarray:
         
     Returns:
         Blurred image
-    """
-    pass
-
-
-def adjust_contrast(image: np.ndarray, factor: float = 1.0) -> np.ndarray:
-    """Adjust image contrast.
-    
-    Args:
-        image: Input image as numpy array
-        factor: Contrast adjustment factor (1.0 = no change)
-        
-    Returns:
-        Contrast-adjusted image
-    """
-    pass
-
-
-def adjust_brightness(image: np.ndarray, factor: float = 1.0) -> np.ndarray:
-    """Adjust image brightness.
-    
-    Args:
-        image: Input image as numpy array
-        factor: Brightness adjustment factor (1.0 = no change)
-        
-    Returns:
-        Brightness-adjusted image
-    """
-    pass
-
-
-def invert_image(image: np.ndarray) -> np.ndarray:
-    """Invert image colors.
-    
-    Args:
-        image: Input image as numpy array
-        
-    Returns:
-        Inverted image
-    """
-    pass
-
-
-def rotate_image(image: np.ndarray, angle: float) -> np.ndarray:
-    """Rotate image by specified angle.
-    
-    Args:
-        image: Input image as numpy array
-        angle: Rotation angle in degrees
-        
-    Returns:
-        Rotated image
     """
     pass
 
