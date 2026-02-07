@@ -2,15 +2,19 @@
 
 from typing import Optional
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGroupBox, QSlider, QLabel, 
-    QPushButton, QListWidget, QHBoxLayout
+    QWidget, QVBoxLayout, QGroupBox,
+    QPushButton, QListWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
+from gel_boy.gui.widgets.brightness_contrast_widget import BrightnessContrastWidget
 
 
 class SidePanel(QWidget):
     """Side panel with image properties and lanes list."""
     
+    # Forward signals from BrightnessContrastWidget
+    min_changed = pyqtSignal(int)
+    max_changed = pyqtSignal(int)
     brightness_changed = pyqtSignal(float)  # Emits brightness factor (0.0-2.0)
     contrast_changed = pyqtSignal(float)    # Emits contrast factor (0.0-2.0)
     
@@ -22,7 +26,7 @@ class SidePanel(QWidget):
         """
         super().__init__(parent)
         self.setMinimumWidth(250)
-        self.setMaximumWidth(300)
+        self.setMaximumWidth(350)
         self._setup_ui()
         
     def _setup_ui(self) -> None:
@@ -47,89 +51,25 @@ class SidePanel(QWidget):
         lanes_group.setLayout(lanes_layout)
         layout.addWidget(lanes_group)
         
-        # Image properties section
-        props_group = QGroupBox("Image Properties")
-        props_layout = QVBoxLayout()
+        # Brightness/Contrast widget with histogram
+        self.brightness_contrast_widget = BrightnessContrastWidget()
         
-        # Brightness control
-        brightness_label = QLabel("Brightness:")
-        props_layout.addWidget(brightness_label)
+        # Connect signals
+        self.brightness_contrast_widget.min_changed.connect(self.min_changed.emit)
+        self.brightness_contrast_widget.max_changed.connect(self.max_changed.emit)
+        self.brightness_contrast_widget.brightness_changed.connect(self.brightness_changed.emit)
+        self.brightness_contrast_widget.contrast_changed.connect(self.contrast_changed.emit)
         
-        brightness_container = QHBoxLayout()
-        self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brightness_slider.setMinimum(0)
-        self.brightness_slider.setMaximum(200)
-        self.brightness_slider.setValue(100)
-        self.brightness_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.brightness_slider.setTickInterval(25)
-        self.brightness_slider.valueChanged.connect(self._on_brightness_changed)
-        brightness_container.addWidget(self.brightness_slider)
-        
-        self.brightness_value = QLabel("100%")
-        self.brightness_value.setMinimumWidth(50)
-        brightness_container.addWidget(self.brightness_value)
-        
-        props_layout.addLayout(brightness_container)
-        
-        # Contrast control
-        contrast_label = QLabel("Contrast:")
-        props_layout.addWidget(contrast_label)
-        
-        contrast_container = QHBoxLayout()
-        self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
-        self.contrast_slider.setMinimum(0)
-        self.contrast_slider.setMaximum(200)
-        self.contrast_slider.setValue(100)
-        self.contrast_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.contrast_slider.setTickInterval(25)
-        self.contrast_slider.valueChanged.connect(self._on_contrast_changed)
-        contrast_container.addWidget(self.contrast_slider)
-        
-        self.contrast_value = QLabel("100%")
-        self.contrast_value.setMinimumWidth(50)
-        contrast_container.addWidget(self.contrast_value)
-        
-        props_layout.addLayout(contrast_container)
-        
-        # Reset button
-        self.reset_btn = QPushButton("Reset")
-        self.reset_btn.clicked.connect(self.reset_values)
-        props_layout.addWidget(self.reset_btn)
-        
-        props_group.setLayout(props_layout)
-        layout.addWidget(props_group)
+        layout.addWidget(self.brightness_contrast_widget)
         
         # Add stretch to push everything to the top
         layout.addStretch()
         
         self.setLayout(layout)
         
-    def _on_brightness_changed(self, value: int) -> None:
-        """Handle brightness slider change.
-        
-        Args:
-            value: Slider value (0-200)
-        """
-        self.brightness_value.setText(f"{value}%")
-        # Convert to factor (0.0-2.0)
-        factor = value / 100.0
-        self.brightness_changed.emit(factor)
-        
-    def _on_contrast_changed(self, value: int) -> None:
-        """Handle contrast slider change.
-        
-        Args:
-            value: Slider value (0-200)
-        """
-        self.contrast_value.setText(f"{value}%")
-        # Convert to factor (0.0-2.0)
-        factor = value / 100.0
-        self.contrast_changed.emit(factor)
-        
     def reset_values(self) -> None:
         """Reset sliders to default values."""
-        self.brightness_slider.setValue(100)
-        self.contrast_slider.setValue(100)
+        self.brightness_contrast_widget.reset_values()
         
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable image property controls.
@@ -137,6 +77,20 @@ class SidePanel(QWidget):
         Args:
             enabled: True to enable, False to disable
         """
-        self.brightness_slider.setEnabled(enabled)
-        self.contrast_slider.setEnabled(enabled)
-        self.reset_btn.setEnabled(enabled)
+        self.brightness_contrast_widget.set_enabled(enabled)
+        
+    def update_histogram(self, image) -> None:
+        """Update histogram from image.
+        
+        Args:
+            image: PIL Image to calculate histogram from
+        """
+        self.brightness_contrast_widget.update_histogram(image)
+        
+    def get_adjustment_values(self):
+        """Get current adjustment values.
+        
+        Returns:
+            Tuple of (min, max, brightness, contrast)
+        """
+        return self.brightness_contrast_widget.get_values()

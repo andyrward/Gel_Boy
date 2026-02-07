@@ -12,8 +12,10 @@ from gel_boy.gui.widgets.side_panel import SidePanel
 from gel_boy.gui.widgets.intensity_panel import IntensityPanel
 from gel_boy.io.image_loader import load_image, get_image_info, get_supported_formats
 from gel_boy.core.image_processing import (
-    rotate_image, flip_image, invert_image, adjust_brightness, adjust_contrast
+    rotate_image, flip_image, invert_image, adjust_brightness, adjust_contrast,
+    rotate_image_precise, apply_lut_adjustments
 )
+from gel_boy.gui.dialogs.rotate_dialog import RotateDialog
 from pathlib import Path
 
 
@@ -128,6 +130,13 @@ class MainWindow(QMainWindow):
         self.rotate_180_action = QAction("Rotate 180°", self)
         self.rotate_180_action.triggered.connect(self.rotate_180)
         image_menu.addAction(self.rotate_180_action)
+        
+        image_menu.addSeparator()
+        
+        self.rotate_precise_action = QAction("Rotate by Angle...", self)
+        self.rotate_precise_action.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self.rotate_precise_action.triggered.connect(self.rotate_precise)
+        image_menu.addAction(self.rotate_precise_action)
         
         image_menu.addSeparator()
         
@@ -256,8 +265,10 @@ class MainWindow(QMainWindow):
         self.image_viewer.mouse_moved.connect(self._on_mouse_moved)
         
         # Side panel signals
-        self.side_panel.brightness_changed.connect(self._on_brightness_changed)
-        self.side_panel.contrast_changed.connect(self._on_contrast_changed)
+        self.side_panel.min_changed.connect(self._on_adjustments_changed)
+        self.side_panel.max_changed.connect(self._on_adjustments_changed)
+        self.side_panel.brightness_changed.connect(self._on_adjustments_changed)
+        self.side_panel.contrast_changed.connect(self._on_adjustments_changed)
         
     def _update_actions(self) -> None:
         """Update action enabled states based on whether image is loaded."""
@@ -267,6 +278,7 @@ class MainWindow(QMainWindow):
         self.rotate_cw_action.setEnabled(has_image)
         self.rotate_ccw_action.setEnabled(has_image)
         self.rotate_180_action.setEnabled(has_image)
+        self.rotate_precise_action.setEnabled(has_image)
         self.flip_h_action.setEnabled(has_image)
         self.flip_v_action.setEnabled(has_image)
         self.invert_action.setEnabled(has_image)
@@ -298,6 +310,9 @@ class MainWindow(QMainWindow):
                 self.image_viewer.load_image(image)
                 self._update_image_info()
                 self._update_actions()
+                
+                # Update histogram
+                self.side_panel.update_histogram(image)
                 
                 # Reset side panel sliders
                 self.side_panel.reset_values()
@@ -336,49 +351,32 @@ class MainWindow(QMainWindow):
         """
         self.position_label.setText(f"X:{x} Y:{y}")
         
-    def _on_brightness_changed(self, factor: float) -> None:
-        """Handle brightness slider change.
+    def _on_adjustments_changed(self, _value=None) -> None:
+        """Handle any adjustment slider change (min/max/brightness/contrast).
+        
+        Uses LUT-based approach for efficient combined adjustments.
         
         Args:
-            factor: Brightness factor
+            _value: Slider value (ignored, we get all values from side panel)
         """
         if not self.image_viewer.has_image():
             return
-            
-        # Reset to original and apply both brightness and contrast
+        
+        # Get all adjustment values
+        min_val, max_val, brightness, contrast = self.side_panel.get_adjustment_values()
+        
+        # Reset to original
         self.image_viewer.reset_image()
         
-        # Apply brightness
-        if abs(factor - 1.0) > 0.01:
-            self.image_viewer.apply_transformation(adjust_brightness, factor)
-            
-        # Re-apply contrast
-        contrast_value = self.side_panel.contrast_slider.value()
-        contrast_factor = contrast_value / 100.0
-        if abs(contrast_factor - 1.0) > 0.01:
-            self.image_viewer.apply_transformation(adjust_contrast, contrast_factor)
-            
-    def _on_contrast_changed(self, factor: float) -> None:
-        """Handle contrast slider change.
-        
-        Args:
-            factor: Contrast factor
-        """
-        if not self.image_viewer.has_image():
-            return
-            
-        # Reset to original and apply both brightness and contrast
-        self.image_viewer.reset_image()
-        
-        # Apply brightness first
-        brightness_value = self.side_panel.brightness_slider.value()
-        brightness_factor = brightness_value / 100.0
-        if abs(brightness_factor - 1.0) > 0.01:
-            self.image_viewer.apply_transformation(adjust_brightness, brightness_factor)
-            
-        # Apply contrast
-        if abs(factor - 1.0) > 0.01:
-            self.image_viewer.apply_transformation(adjust_contrast, factor)
+        # Apply combined LUT adjustments
+        if min_val != 0 or max_val != 255 or abs(brightness - 1.0) > 0.01 or abs(contrast - 1.0) > 0.01:
+            self.image_viewer.apply_transformation(
+                apply_lut_adjustments,
+                min_val,
+                max_val,
+                brightness,
+                contrast
+            )
             
     def rotate_clockwise(self) -> None:
         """Rotate image 90 degrees clockwise.
@@ -397,6 +395,31 @@ class MainWindow(QMainWindow):
     def rotate_180(self) -> None:
         """Rotate image 180 degrees."""
         self.image_viewer.apply_transformation(rotate_image, 180)
+        
+    def rotate_precise(self) -> None:
+        """Rotate image by precise angle using dialog."""
+        result = RotateDialog.get_rotation_parameters(self)
+        if result is not None:
+            angle, expand, fillcolor = result
+            
+            # Convert color name to RGB tuple
+            if fillcolor == "white":
+                color = (255, 255, 255)
+            else:
+                color = (0, 0, 0)
+            
+            # Apply rotation
+            self.image_viewer.apply_transformation(
+                rotate_image_precise,
+                angle,
+                expand,
+                color
+            )
+            
+            # Update histogram after transformation
+            current_image = self.image_viewer.get_current_image()
+            if current_image:
+                self.side_panel.update_histogram(current_image)
         
     def flip_horizontal(self) -> None:
         """Flip image horizontally."""
