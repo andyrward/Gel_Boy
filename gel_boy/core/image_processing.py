@@ -3,6 +3,7 @@
 from typing import Optional, Tuple
 import numpy as np
 from PIL import Image, ImageOps, ImageEnhance
+from gel_boy.io.image_loader import get_bit_depth
 
 
 def rotate_image(image: Image.Image, angle: int) -> Image.Image:
@@ -73,8 +74,6 @@ def invert_image(image: Image.Image) -> Image.Image:
     Returns:
         Inverted PIL Image
     """
-    from gel_boy.io.image_loader import get_bit_depth
-    
     # Check bit depth
     bit_depth, max_value = get_bit_depth(image)
     
