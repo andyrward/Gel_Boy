@@ -24,10 +24,10 @@ def test_16bit_image(tmp_path):
     # Let PIL auto-detect mode from dtype
     img = Image.fromarray(data)
     img.save(img_path)
-    # Load it back to get proper 16-bit mode and load into memory
+    # Load it back to get proper 16-bit mode
     with Image.open(img_path) as loaded_img:
-        loaded_img.load()  # Load data into memory
-        return loaded_img
+        # Copy to avoid issues with closed file after context exits
+        return loaded_img.copy()
 
 
 @pytest.fixture
