@@ -6,7 +6,7 @@ from PIL import Image, ImageOps, ImageEnhance
 
 
 def rotate_image(image: Image.Image, angle: int) -> Image.Image:
-    """Rotate image by specified angle.
+    """Rotate image by specified angle (legacy for 90-degree rotations).
     
     Args:
         image: PIL Image to rotate
@@ -16,6 +16,34 @@ def rotate_image(image: Image.Image, angle: int) -> Image.Image:
         Rotated PIL Image
     """
     return image.rotate(-angle, expand=True)
+
+
+def rotate_image_precise(
+    image: Image.Image,
+    angle: float,
+    expand: bool = True,
+    fillcolor: Optional[Tuple[int, int, int]] = None
+) -> Image.Image:
+    """Rotate image by precise decimal angle.
+    
+    Args:
+        image: PIL Image to rotate
+        angle: Rotation angle in degrees (positive = counter-clockwise)
+        expand: If True, expand output to fit entire rotated image
+        fillcolor: Color for areas outside original image (default: black for RGB, 0 for grayscale)
+        
+    Returns:
+        Rotated PIL Image
+    """
+    # PIL's rotate uses counter-clockwise angles
+    # If fillcolor not specified, use appropriate default
+    if fillcolor is None:
+        if image.mode == 'RGB' or image.mode == 'RGBA':
+            fillcolor = (0, 0, 0)
+        else:
+            fillcolor = 0
+    
+    return image.rotate(angle, expand=expand, fillcolor=fillcolor, resample=Image.BICUBIC)
 
 
 def flip_image(image: Image.Image, horizontal: bool = True) -> Image.Image:
@@ -72,6 +100,144 @@ def adjust_contrast(image: Image.Image, factor: float) -> Image.Image:
     """
     enhancer = ImageEnhance.Contrast(image)
     return enhancer.enhance(factor)
+
+
+def apply_intensity_window(
+    image: Image.Image,
+    min_val: int,
+    max_val: int
+) -> Image.Image:
+    """Apply intensity windowing (min/max clipping) to image.
+    
+    Remaps pixel intensities so that min_val becomes 0 and max_val becomes 255,
+    with linear interpolation in between. Values outside this range are clipped.
+    
+    Args:
+        image: PIL Image to adjust
+        min_val: Minimum intensity value (0-255)
+        max_val: Maximum intensity value (0-255)
+        
+    Returns:
+        Windowed PIL Image
+    """
+    # Ensure min < max
+    if min_val >= max_val:
+        return image
+    
+    # Convert to numpy array
+    img_array = np.array(image)
+    
+    # Create lookup table
+    lut = np.arange(256, dtype=np.float32)
+    
+    # Apply windowing: map [min_val, max_val] to [0, 255]
+    lut = (lut - min_val) * 255.0 / (max_val - min_val)
+    lut = np.clip(lut, 0, 255).astype(np.uint8)
+    
+    # Apply LUT to image
+    if len(img_array.shape) == 2:
+        # Grayscale
+        result = lut[img_array]
+    elif len(img_array.shape) == 3:
+        # RGB - apply to each channel
+        result = np.zeros_like(img_array)
+        for i in range(img_array.shape[2]):
+            result[:, :, i] = lut[img_array[:, :, i]]
+    else:
+        return image
+    
+    return Image.fromarray(result, mode=image.mode)
+
+
+def calculate_histogram(image: Image.Image) -> Tuple[np.ndarray, np.ndarray]:
+    """Calculate histogram for image.
+    
+    For grayscale images, returns a single histogram.
+    For RGB images, returns combined histogram of all channels.
+    
+    Args:
+        image: PIL Image
+        
+    Returns:
+        Tuple of (bins, values) where bins are 0-255 and values are counts
+    """
+    img_array = np.array(image)
+    
+    if len(img_array.shape) == 2:
+        # Grayscale
+        hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
+    elif len(img_array.shape) == 3:
+        # RGB - combine all channels
+        hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
+    else:
+        # Fallback
+        hist = np.zeros(256)
+        bins = np.arange(257)
+    
+    return bins[:-1], hist
+
+
+def apply_lut_adjustments(
+    image: Image.Image,
+    min_val: int = 0,
+    max_val: int = 255,
+    brightness: float = 1.0,
+    contrast: float = 1.0
+) -> Image.Image:
+    """Apply combined LUT-based adjustments for performance.
+    
+    Combines intensity windowing, brightness, and contrast into a single LUT
+    for efficient application.
+    
+    Args:
+        image: PIL Image to adjust
+        min_val: Minimum intensity value (0-255)
+        max_val: Maximum intensity value (0-255)
+        brightness: Brightness factor (1.0 = original)
+        contrast: Contrast factor (1.0 = original)
+        
+    Returns:
+        Adjusted PIL Image
+    """
+    # Ensure min < max
+    if min_val >= max_val:
+        min_val = 0
+        max_val = 255
+    
+    # Create base LUT
+    lut = np.arange(256, dtype=np.float32)
+    
+    # Apply intensity windowing
+    lut = (lut - min_val) * 255.0 / (max_val - min_val)
+    lut = np.clip(lut, 0, 255)
+    
+    # Apply contrast around midpoint (128)
+    if abs(contrast - 1.0) > 0.01:
+        lut = (lut - 128) * contrast + 128
+    
+    # Apply brightness
+    if abs(brightness - 1.0) > 0.01:
+        lut = lut * brightness
+    
+    # Clip to valid range
+    lut = np.clip(lut, 0, 255).astype(np.uint8)
+    
+    # Convert image to numpy array
+    img_array = np.array(image)
+    
+    # Apply LUT
+    if len(img_array.shape) == 2:
+        # Grayscale
+        result = lut[img_array]
+    elif len(img_array.shape) == 3:
+        # RGB - apply to each channel
+        result = np.zeros_like(img_array)
+        for i in range(img_array.shape[2]):
+            result[:, :, i] = lut[img_array[:, :, i]]
+    else:
+        return image
+    
+    return Image.fromarray(result, mode=image.mode)
 
 
 # Legacy numpy-based functions kept for backward compatibility
