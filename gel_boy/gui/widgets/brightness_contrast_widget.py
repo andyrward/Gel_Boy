@@ -277,7 +277,9 @@ class BrightnessContrastWidget(QWidget):
                 
                 # Ensure max > min
                 if max_val <= min_val:
-                    max_val = min_val + 1
+                    # Use proportional minimum difference based on bit depth
+                    min_diff = max(1, self._max_value // 1000)
+                    max_val = min_val + min_diff
                 
                 self._updating = True
                 self.min_slider.setValue(min_val)

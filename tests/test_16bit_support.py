@@ -171,6 +171,9 @@ def test_16bit_brightness_contrast(test_16bit_image):
     """Test brightness and contrast adjustments on 16-bit images."""
     img = load_image(test_16bit_image)
     
+    # Get original data for comparison
+    original_data = np.array(img)
+    
     # Apply adjustments
     result = apply_lut_adjustments(
         img,
@@ -183,3 +186,19 @@ def test_16bit_brightness_contrast(test_16bit_image):
     assert result is not None
     assert result.mode == 'L'  # Should be converted to 8-bit
     assert result.size == img.size
+    
+    # Verify that adjustments were actually applied
+    result_data = np.array(result)
+    
+    # The region with values around 30000 (in original range) should be 
+    # mapped to mid-range in 8-bit after windowing
+    # Due to brightness and contrast, values should be different from default windowing
+    
+    # Apply default windowing without brightness/contrast for comparison
+    default_result = apply_lut_adjustments(img, min_val=10000, max_val=50000)
+    default_data = np.array(default_result)
+    
+    # With brightness and contrast applied, the values should differ
+    # We expect the adjusted result to have different intensity distribution
+    assert not np.array_equal(result_data, default_data), \
+        "Brightness/contrast adjustments should change pixel values"
