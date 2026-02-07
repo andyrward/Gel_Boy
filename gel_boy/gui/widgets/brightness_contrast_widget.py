@@ -43,6 +43,10 @@ class BrightnessContrastWidget(QWidget):
         self._histogram_values: Optional[np.ndarray] = None
         self._updating = False  # Flag to prevent signal loops
         
+        # Bit depth tracking
+        self._bit_depth: int = 8
+        self._max_value: int = 255
+        
         self._setup_ui()
         
     def _setup_ui(self) -> None:
@@ -250,24 +254,39 @@ class BrightnessContrastWidget(QWidget):
         
     def _on_auto_clicked(self) -> None:
         """Handle Auto button click."""
-        if self._histogram_values is not None:
+        if self._histogram_values is not None and self._histogram_bins is not None:
             # Calculate auto levels based on histogram
             # Find 1st and 99th percentile for robust auto-leveling
             cumsum = np.cumsum(self._histogram_values)
             total = cumsum[-1]
             
             if total > 0:
+                # Find percentile indices
                 min_idx = np.searchsorted(cumsum, total * 0.01)
                 max_idx = np.searchsorted(cumsum, total * 0.99)
                 
+                # Map indices to actual intensity values
+                if self._bit_depth == 16:
+                    # For 16-bit, bins represent actual values
+                    min_val = int(self._histogram_bins[min(min_idx, len(self._histogram_bins) - 1)])
+                    max_val = int(self._histogram_bins[min(max_idx, len(self._histogram_bins) - 1)])
+                else:
+                    # For 8-bit, indices are the values
+                    min_val = int(min_idx)
+                    max_val = int(max_idx)
+                
+                # Ensure max > min
+                if max_val <= min_val:
+                    max_val = min_val + 1
+                
                 self._updating = True
-                self.min_slider.setValue(int(min_idx))
-                self.max_slider.setValue(int(max_idx))
+                self.min_slider.setValue(min_val)
+                self.max_slider.setValue(max_val)
                 self._updating = False
                 
                 self._update_histogram_markers()
-                self.min_changed.emit(int(min_idx))
-                self.max_changed.emit(int(max_idx))
+                self.min_changed.emit(min_val)
+                self.max_changed.emit(max_val)
         
         self.auto_clicked.emit()
         
@@ -275,7 +294,7 @@ class BrightnessContrastWidget(QWidget):
         """Handle Reset button click."""
         self._updating = True
         self.min_slider.setValue(0)
-        self.max_slider.setValue(255)
+        self.max_slider.setValue(self._max_value)
         self.brightness_slider.setValue(100)
         self.contrast_slider.setValue(100)
         self._updating = False
@@ -321,8 +340,8 @@ class BrightnessContrastWidget(QWidget):
             label='Intensity Distribution'
         )
         
-        # Set limits
-        self.ax.set_xlim(0, 255)
+        # Set limits based on bit depth
+        self.ax.set_xlim(0, self._max_value)
         max_count = np.max(self._histogram_values) if len(self._histogram_values) > 0 else 100
         self.ax.set_ylim(0, max_count * 1.1)
         
@@ -392,14 +411,14 @@ class BrightnessContrastWidget(QWidget):
     def _clear_histogram(self) -> None:
         """Clear the histogram display."""
         self.ax.clear()
-        self.ax.set_xlim(0, 255)
+        self.ax.set_xlim(0, self._max_value)
         self.ax.set_ylim(0, 100)
         self.ax.set_xlabel('Intensity', fontsize=8)
         self.ax.set_ylabel('Count', fontsize=8)
         self.ax.tick_params(labelsize=7)
         self.ax.grid(True, alpha=0.3)
         self.ax.text(
-            127.5, 50,
+            self._max_value / 2, 50,
             'No Image',
             ha='center',
             va='center',
@@ -411,6 +430,45 @@ class BrightnessContrastWidget(QWidget):
     def reset_values(self) -> None:
         """Reset all sliders to default values."""
         self._on_reset_clicked()
+    
+    def set_bit_depth(self, bit_depth: int, max_value: int) -> None:
+        """Set the bit depth and adjust slider ranges.
+        
+        Args:
+            bit_depth: Bit depth of the image (8 or 16)
+            max_value: Maximum value for the bit depth (255 or 65535)
+        """
+        self._bit_depth = bit_depth
+        self._max_value = max_value
+        
+        # Update slider ranges
+        self._updating = True
+        self.min_slider.setMaximum(max_value)
+        self.max_slider.setMaximum(max_value)
+        self.min_slider.setValue(0)
+        self.max_slider.setValue(max_value)
+        self._updating = False
+        
+        # Update tick intervals based on range
+        if bit_depth == 16:
+            # For 16-bit, use larger tick intervals
+            tick_interval = max_value // 8  # ~8192 for 16-bit
+            self.min_slider.setTickInterval(tick_interval)
+            self.max_slider.setTickInterval(tick_interval)
+        else:
+            # For 8-bit, use 32 as before
+            self.min_slider.setTickInterval(32)
+            self.max_slider.setTickInterval(32)
+        
+        # Update value labels
+        self.min_value.setText("0")
+        self.max_value.setText(str(max_value))
+        
+        # Update histogram display range
+        if self._histogram_bins is not None:
+            self._draw_histogram()
+        else:
+            self._clear_histogram()
         
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all controls.

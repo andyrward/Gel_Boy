@@ -154,27 +154,46 @@ def calculate_histogram(image: Image.Image) -> Tuple[np.ndarray, np.ndarray]:
     
     For grayscale images, returns a single histogram.
     For RGB images, returns combined histogram of all channels.
+    For 16-bit images, uses 256 bins covering the full range.
     
     Args:
         image: PIL Image
         
     Returns:
-        Tuple of (bins, values) where bins are 0-255 and values are counts
+        Tuple of (bins, values) where:
+        - For 8-bit: bins are 0-255, values are counts per bin
+        - For 16-bit: bins are 256 points from 0-65535, values are counts per bin
     """
     img_array = np.array(image)
     
-    if len(img_array.shape) == 2:
-        # Grayscale
-        hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
-    elif len(img_array.shape) == 3:
-        # RGB - combine all channels
-        hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
-    else:
-        # Fallback
-        hist = np.zeros(256)
-        bins = np.arange(257)
+    # Determine if this is 16-bit data
+    is_16bit = image.mode in ('I', 'I;16')
     
-    return bins[:-1], hist
+    if is_16bit:
+        # For 16-bit images, use 256 bins spanning 0-65535
+        if len(img_array.shape) == 2:
+            # Grayscale 16-bit
+            hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 65536))
+        else:
+            # Shouldn't happen for 16-bit, but handle anyway
+            hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 65536))
+        # Return bin centers instead of edges
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        return bin_centers, hist
+    else:
+        # 8-bit images
+        if len(img_array.shape) == 2:
+            # Grayscale
+            hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
+        elif len(img_array.shape) == 3:
+            # RGB - combine all channels
+            hist, bins = np.histogram(img_array.flatten(), bins=256, range=(0, 256))
+        else:
+            # Fallback
+            hist = np.zeros(256)
+            bins = np.arange(257)
+        
+        return bins[:-1], hist
 
 
 def apply_lut_adjustments(
@@ -187,57 +206,86 @@ def apply_lut_adjustments(
     """Apply combined LUT-based adjustments for performance.
     
     Combines intensity windowing, brightness, and contrast into a single LUT
-    for efficient application.
+    for efficient application. Works with both 8-bit and 16-bit images.
     
     Args:
         image: PIL Image to adjust
-        min_val: Minimum intensity value (0-255)
-        max_val: Maximum intensity value (0-255)
+        min_val: Minimum intensity value (0-255 for 8-bit, 0-65535 for 16-bit)
+        max_val: Maximum intensity value (0-255 for 8-bit, 0-65535 for 16-bit)
         brightness: Brightness factor (1.0 = original)
         contrast: Contrast factor (1.0 = original)
         
     Returns:
         Adjusted PIL Image
     """
+    from gel_boy.io.image_loader import get_bit_depth
+    
+    # Get bit depth info
+    bit_depth, max_possible = get_bit_depth(image)
+    
     # Ensure min < max
     if min_val >= max_val:
         min_val = 0
-        max_val = 255
-    
-    # Create base LUT
-    lut = np.arange(256, dtype=np.float32)
-    
-    # Apply intensity windowing
-    lut = (lut - min_val) * 255.0 / (max_val - min_val)
-    lut = np.clip(lut, 0, 255)
-    
-    # Apply contrast around midpoint (128)
-    if abs(contrast - 1.0) > 0.01:
-        lut = (lut - 128) * contrast + 128
-    
-    # Apply brightness
-    if abs(brightness - 1.0) > 0.01:
-        lut = lut * brightness
-    
-    # Clip to valid range
-    lut = np.clip(lut, 0, 255).astype(np.uint8)
+        max_val = max_possible
     
     # Convert image to numpy array
     img_array = np.array(image)
     
-    # Apply LUT
-    if len(img_array.shape) == 2:
-        # Grayscale
-        result = lut[img_array]
-    elif len(img_array.shape) == 3:
-        # RGB - apply to each channel
-        result = np.zeros_like(img_array)
-        for i in range(img_array.shape[2]):
-            result[:, :, i] = lut[img_array[:, :, i]]
+    if bit_depth == 16:
+        # For 16-bit images, apply windowing directly on data
+        # Convert to float for calculations
+        data = img_array.astype(np.float32)
+        
+        # Apply intensity windowing: map [min_val, max_val] to [0, 255]
+        data = np.clip(data, min_val, max_val)
+        data = ((data - min_val) / (max_val - min_val) * 255.0)
+        
+        # Apply contrast around midpoint (128)
+        if abs(contrast - 1.0) > 0.01:
+            data = (data - 128) * contrast + 128
+        
+        # Apply brightness
+        if abs(brightness - 1.0) > 0.01:
+            data = data * brightness
+        
+        # Clip to 8-bit range
+        data = np.clip(data, 0, 255).astype(np.uint8)
+        
+        # Return as 8-bit grayscale image
+        return Image.fromarray(data, mode='L')
     else:
-        return image
-    
-    return Image.fromarray(result, mode=image.mode)
+        # For 8-bit images, use LUT approach
+        # Create base LUT
+        lut = np.arange(256, dtype=np.float32)
+        
+        # Apply intensity windowing
+        lut = (lut - min_val) * 255.0 / (max_val - min_val)
+        lut = np.clip(lut, 0, 255)
+        
+        # Apply contrast around midpoint (128)
+        if abs(contrast - 1.0) > 0.01:
+            lut = (lut - 128) * contrast + 128
+        
+        # Apply brightness
+        if abs(brightness - 1.0) > 0.01:
+            lut = lut * brightness
+        
+        # Clip to valid range
+        lut = np.clip(lut, 0, 255).astype(np.uint8)
+        
+        # Apply LUT
+        if len(img_array.shape) == 2:
+            # Grayscale
+            result = lut[img_array]
+        elif len(img_array.shape) == 3:
+            # RGB - apply to each channel
+            result = np.zeros_like(img_array)
+            for i in range(img_array.shape[2]):
+                result[:, :, i] = lut[img_array[:, :, i]]
+        else:
+            return image
+        
+        return Image.fromarray(result, mode=image.mode)
 
 
 # Legacy numpy-based functions kept for backward compatibility

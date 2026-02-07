@@ -43,6 +43,10 @@ class ImageViewer(QGraphicsView):
         self.current_image: Optional[Image.Image] = None
         self.pixmap_item: Optional[QGraphicsPixmapItem] = None
         self.zoom_level: float = 1.0
+        
+        # Display parameters for 16-bit windowing
+        self.display_min: int = 0
+        self.display_max: int = 255
 
         # Track mouse for position display
         self.setMouseTracking(True)
@@ -55,16 +59,46 @@ class ImageViewer(QGraphicsView):
         """
         self.original_image = image.copy()
         self.current_image = image.copy()
+        
+        # Set default display range based on bit depth
+        from gel_boy.io.image_loader import get_bit_depth
+        _, max_val = get_bit_depth(image)
+        self.display_min = 0
+        self.display_max = max_val
+        
         self.update_display()
         self.fit_to_window()
 
     def update_display(self) -> None:
-        """Update the displayed image."""
+        """Update the displayed image.
+        
+        For 16-bit images, applies windowing to convert to 8-bit for display.
+        """
         if self.current_image is None:
             return
 
+        # Handle 16-bit images with windowing
+        if self.current_image.mode in ('I', 'I;16'):
+            # Convert 16-bit to 8-bit for display using windowing
+            data = np.array(self.current_image, dtype=np.float32)
+            
+            # Apply windowing: map [display_min, display_max] to [0, 255]
+            data = np.clip(data, self.display_min, self.display_max)
+            if self.display_max > self.display_min:
+                data = ((data - self.display_min) / (self.display_max - self.display_min) * 255)
+            data = data.astype(np.uint8)
+            
+            # Convert to QImage as grayscale
+            qimage = QImage(
+                data.tobytes(),
+                data.shape[1],
+                data.shape[0],
+                data.shape[1],
+                QImage.Format.Format_Grayscale8,
+            )
+            qimage = qimage.copy()  # Make a deep copy to own the data
         # Convert PIL Image to QPixmap
-        if self.current_image.mode == "RGB":
+        elif self.current_image.mode == "RGB":
             data = self.current_image.tobytes("raw", "RGB")
             qimage = QImage(
                 data,
@@ -196,7 +230,23 @@ class ImageViewer(QGraphicsView):
         """Reset to original image, removing all transformations."""
         if self.original_image:
             self.current_image = self.original_image.copy()
+            # Reset display range to full range
+            from gel_boy.io.image_loader import get_bit_depth
+            _, max_val = get_bit_depth(self.original_image)
+            self.display_min = 0
+            self.display_max = max_val
             self.update_display()
+    
+    def set_display_range(self, min_val: int, max_val: int) -> None:
+        """Set the display range for windowing (used for 16-bit images).
+        
+        Args:
+            min_val: Minimum value to map to black
+            max_val: Maximum value to map to white
+        """
+        self.display_min = min_val
+        self.display_max = max_val
+        self.update_display()
 
     def get_current_image(self) -> Optional[Image.Image]:
         """Get the current (transformed) image.

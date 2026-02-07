@@ -1,6 +1,6 @@
 """Image file loading utilities."""
 
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -18,6 +18,9 @@ SUPPORTED_FORMATS = [
 def load_image(filepath: str) -> Optional[Image.Image]:
     """Load an image file.
     
+    Preserves 16-bit images ('I', 'I;16') and 8-bit images ('RGB', 'L').
+    Other modes are converted to RGB.
+    
     Args:
         filepath: Path to image file
         
@@ -26,8 +29,9 @@ def load_image(filepath: str) -> Optional[Image.Image]:
     """
     try:
         image = Image.open(filepath)
-        # Convert to RGB if needed (handles RGBA, grayscale, etc.)
-        if image.mode not in ('RGB', 'L'):
+        # Keep RGB, grayscale (L), and 16-bit modes (I, I;16) intact
+        # Convert other modes (RGBA, P, etc.) to RGB
+        if image.mode not in ('RGB', 'L', 'I', 'I;16'):
             image = image.convert('RGB')
         return image
     except Exception as e:
@@ -61,6 +65,27 @@ def get_supported_formats() -> List[str]:
         List of file extension patterns
     """
     return SUPPORTED_FORMATS
+
+
+def get_bit_depth(image: Image.Image) -> Tuple[int, int]:
+    """Get bit depth and maximum value for an image.
+    
+    Args:
+        image: PIL Image
+    
+    Returns:
+        Tuple of (bit_depth, max_value)
+        - For 8-bit images: (8, 255)
+        - For 16-bit images: (16, 65535)
+    """
+    if image.mode == 'L':
+        return (8, 255)
+    elif image.mode in ('I', 'I;16'):
+        return (16, 65535)
+    elif image.mode == 'RGB':
+        return (8, 255)
+    else:
+        return (8, 255)
 
 
 # Legacy numpy-based functions kept for backward compatibility

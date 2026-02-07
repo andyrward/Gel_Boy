@@ -94,3 +94,12 @@ class SidePanel(QWidget):
             Tuple of (min, max, brightness, contrast)
         """
         return self.brightness_contrast_widget.get_values()
+    
+    def set_bit_depth(self, bit_depth: int, max_value: int) -> None:
+        """Set the bit depth for the brightness/contrast widget.
+        
+        Args:
+            bit_depth: Bit depth of the image (8 or 16)
+            max_value: Maximum value for the bit depth (255 or 65535)
+        """
+        self.brightness_contrast_widget.set_bit_depth(bit_depth, max_value)
