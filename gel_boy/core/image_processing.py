@@ -3,6 +3,7 @@
 from typing import Optional, Tuple
 import numpy as np
 from PIL import Image, ImageOps, ImageEnhance
+from gel_boy.io.image_loader import get_bit_depth
 
 
 def rotate_image(image: Image.Image, angle: int) -> Image.Image:
@@ -65,13 +66,29 @@ def flip_image(image: Image.Image, horizontal: bool = True) -> Image.Image:
 def invert_image(image: Image.Image) -> Image.Image:
     """Invert image colors (create negative).
     
+    Works with 16-bit, 8-bit grayscale, and RGB images.
+    
     Args:
         image: PIL Image to invert
         
     Returns:
         Inverted PIL Image
     """
-    return ImageOps.invert(image.convert('RGB'))
+    # Check bit depth
+    bit_depth, max_value = get_bit_depth(image)
+    
+    if bit_depth == 16:
+        # For 16-bit images, manually invert using numpy
+        img_array = np.array(image)
+        inverted_array = max_value - img_array
+        # Let PIL auto-detect mode from dtype
+        return Image.fromarray(inverted_array)
+    elif image.mode == 'L':
+        # For 8-bit grayscale, use ImageOps.invert directly
+        return ImageOps.invert(image)
+    else:
+        # For RGB and other modes, convert to RGB and invert
+        return ImageOps.invert(image.convert('RGB'))
 
 
 def adjust_brightness(image: Image.Image, factor: float) -> Image.Image:

@@ -1,6 +1,7 @@
 """Tests for new image processing functions."""
 
 import pytest
+import numpy as np
 from PIL import Image
 from gel_boy.core.image_processing import (
     rotate_image, flip_image, invert_image,
@@ -12,6 +13,27 @@ from gel_boy.core.image_processing import (
 def test_image():
     """Create a test image."""
     return Image.new('RGB', (100, 50), color=(128, 128, 128))
+
+
+@pytest.fixture
+def test_16bit_image(tmp_path):
+    """Create a 16-bit test image."""
+    # Create a 16-bit grayscale image with known values
+    img_path = tmp_path / "test_16bit_invert.tif"
+    data = np.full((50, 100), 30000, dtype=np.uint16)
+    # Let PIL auto-detect mode from dtype
+    img = Image.fromarray(data)
+    img.save(img_path)
+    # Load it back to get proper 16-bit mode
+    with Image.open(img_path) as loaded_img:
+        # Copy to avoid issues with closed file after context exits
+        return loaded_img.copy()
+
+
+@pytest.fixture
+def test_8bit_grayscale():
+    """Create an 8-bit grayscale test image."""
+    return Image.new('L', (100, 50), color=128)
 
 
 def test_rotate_image(test_image):
@@ -41,10 +63,46 @@ def test_flip_image(test_image):
 
 
 def test_invert_image(test_image):
-    """Test image inversion."""
+    """Test image inversion for RGB."""
     inverted = invert_image(test_image)
     assert inverted.size == test_image.size
     assert inverted.mode == 'RGB'
+
+
+def test_invert_16bit_image(test_16bit_image):
+    """Test image inversion for 16-bit images."""
+    inverted = invert_image(test_16bit_image)
+    
+    # Check that size and mode are preserved
+    assert inverted.size == test_16bit_image.size
+    assert inverted.mode == test_16bit_image.mode
+    
+    # Check that inversion works correctly
+    # Original image has value 30000, inverted should have 65535 - 30000 = 35535
+    inverted_array = np.array(inverted)
+    original_array = np.array(test_16bit_image)
+    
+    # Verify inversion formula: max_value - original
+    expected = 65535 - original_array
+    np.testing.assert_array_equal(inverted_array, expected)
+
+
+def test_invert_8bit_grayscale(test_8bit_grayscale):
+    """Test image inversion for 8-bit grayscale images."""
+    inverted = invert_image(test_8bit_grayscale)
+    
+    # Check that size and mode are preserved
+    assert inverted.size == test_8bit_grayscale.size
+    assert inverted.mode == 'L'
+    
+    # Check that inversion works correctly
+    # Original image has value 128, inverted should have 255 - 128 = 127
+    inverted_array = np.array(inverted)
+    original_array = np.array(test_8bit_grayscale)
+    
+    # Verify inversion formula: 255 - original
+    expected = 255 - original_array
+    np.testing.assert_array_equal(inverted_array, expected)
 
 
 def test_adjust_brightness(test_image):
