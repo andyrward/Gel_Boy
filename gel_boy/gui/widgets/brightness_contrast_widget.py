@@ -349,17 +349,17 @@ class BrightnessContrastWidget(QWidget):
         if hasattr(self, 'min_line') and self.min_line:
             try:
                 self.min_line.remove()
-            except:
+            except ValueError:
                 pass
         if hasattr(self, 'max_line') and self.max_line:
             try:
                 self.max_line.remove()
-            except:
+            except ValueError:
                 pass
         if hasattr(self, 'filled_region') and self.filled_region:
             try:
                 self.filled_region.remove()
-            except:
+            except ValueError:
                 pass
         
         # Draw shaded region between min and max
