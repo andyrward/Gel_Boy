@@ -23,9 +23,13 @@ def test_image_8bit():
 
 @pytest.fixture
 def test_image_16bit():
-    """Create a 16-bit test image."""
+    """Create a 16-bit test image.
+    
+    Note: PIL mode 'I' expects int32 data, but we use unsigned values
+    0-65535 to represent 16-bit image data (as is typical for medical/scientific imaging).
+    """
     # Create a simple gradient image with 16-bit values
-    # Mode 'I' expects int32, so we need to use int32 data
+    # Mode 'I' expects int32, so we convert from uint16 range to int32
     data = np.arange(0, 65536, 256, dtype=np.int32).reshape(16, 16)
     return Image.fromarray(data, mode='I')
 
@@ -114,7 +118,8 @@ def test_invert_16bit_then_brightness(test_image_16bit):
     inverted_value = inverted_image.getpixel((8, 8))
     
     # Verify inversion (16-bit inversion: 65535 - original)
-    assert abs(inverted_value - (65535 - original_value)) < 10, "16-bit inversion failed"
+    # Allow small tolerance due to potential rounding in numpy operations
+    assert abs(inverted_value - (65535 - original_value)) <= 1, "16-bit inversion failed"
     
     # Apply brightness via LUT adjustments
     # For 16-bit, apply_lut_adjustments converts to 8-bit
