@@ -371,12 +371,11 @@ class MainWindow(QMainWindow):
         # Get all adjustment values
         min_val, max_val, brightness, contrast = self.side_panel.get_adjustment_values()
         
-        # Check if we have a 16-bit image
-        original = self.image_viewer.original_image
-        if original and original.mode in ('I', 'I;16'):
+        # Check if we have a 16-bit image based on current image mode
+        current_image = self.image_viewer.current_image
+        if current_image and current_image.mode in ('I', 'I;16'):
             # For 16-bit images, update display windowing directly
             # This allows windowing to happen in the viewer for better performance
-            self.image_viewer.reset_image()
             self.image_viewer.set_display_range(min_val, max_val)
             
             # Apply brightness/contrast if needed
@@ -390,10 +389,7 @@ class MainWindow(QMainWindow):
                     contrast
                 )
         else:
-            # For 8-bit images, use the existing approach
-            # Reset to original
-            self.image_viewer.reset_image()
-            
+            # For 8-bit images, apply adjustments cumulatively
             # Apply combined LUT adjustments
             if min_val != 0 or max_val != 255 or abs(brightness - 1.0) > 0.01 or abs(contrast - 1.0) > 0.01:
                 self.image_viewer.apply_transformation(
