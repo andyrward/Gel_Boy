@@ -1,6 +1,6 @@
 """Main application window for Gel_Boy."""
 
-from typing import Optional
+from typing import Optional, List
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QFileDialog, QMessageBox, QToolBar, QStatusBar, QLabel
@@ -10,12 +10,16 @@ from PyQt6.QtGui import QAction, QKeySequence
 from gel_boy.gui.widgets.image_viewer import ImageViewer
 from gel_boy.gui.widgets.side_panel import SidePanel
 from gel_boy.gui.widgets.intensity_panel import IntensityPanel
+from gel_boy.gui.widgets.lane_panel import LanePanel
 from gel_boy.io.image_loader import load_image, get_image_info, get_supported_formats
 from gel_boy.core.image_processing import (
     rotate_image, flip_image, invert_image, adjust_brightness, adjust_contrast,
     rotate_image_precise, apply_lut_adjustments
 )
+from gel_boy.core.lane_detection import detect_lanes
+from gel_boy.core.intensity_analysis import calculate_profile_statistics
 from gel_boy.gui.dialogs.rotate_dialog import RotateDialog
+from gel_boy.models.lane import Lane
 from pathlib import Path
 
 
@@ -30,6 +34,7 @@ class MainWindow(QMainWindow):
         
         self.current_filename: Optional[str] = None
         self.recent_files: list = []
+        self._lanes: List[Lane] = []
         
         self._setup_ui()
         self._create_menus()
@@ -58,10 +63,15 @@ class MainWindow(QMainWindow):
         # Create side panel
         self.side_panel = SidePanel()
         h_splitter.addWidget(self.side_panel)
-        
+
+        # Create lane panel
+        self.lane_panel = LanePanel()
+        h_splitter.addWidget(self.lane_panel)
+
         # Set initial sizes (main viewer gets most space)
         h_splitter.setStretchFactor(0, 4)
         h_splitter.setStretchFactor(1, 1)
+        h_splitter.setStretchFactor(2, 1)
         
         # Create vertical splitter for main content and bottom panel
         v_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -164,11 +174,40 @@ class MainWindow(QMainWindow):
         
         # Analysis menu
         analysis_menu = menubar.addMenu("&Analysis")
-        
-        detect_lanes_action = QAction("Detect Lanes", self)
-        detect_lanes_action.setEnabled(False)
-        analysis_menu.addAction(detect_lanes_action)
-        
+
+        self.detect_lanes_action = QAction("Detect Lanes", self)
+        self.detect_lanes_action.setShortcut(QKeySequence("Ctrl+L"))
+        self.detect_lanes_action.setEnabled(False)
+        self.detect_lanes_action.triggered.connect(self._on_detect_lanes)
+        analysis_menu.addAction(self.detect_lanes_action)
+
+        self.draw_lane_action = QAction("Draw Lane Manually", self)
+        self.draw_lane_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.draw_lane_action.setCheckable(True)
+        self.draw_lane_action.setEnabled(False)
+        self.draw_lane_action.triggered.connect(self._on_draw_lane_toggled)
+        analysis_menu.addAction(self.draw_lane_action)
+
+        self.calc_profiles_action = QAction("Calculate Profiles", self)
+        self.calc_profiles_action.setShortcut(QKeySequence("Ctrl+P"))
+        self.calc_profiles_action.setEnabled(False)
+        self.calc_profiles_action.triggered.connect(lambda: self._on_calculate_profiles())
+        analysis_menu.addAction(self.calc_profiles_action)
+
+        self.edit_lane_action = QAction("Edit Lanes", self)
+        self.edit_lane_action.setShortcut(QKeySequence("Ctrl+E"))
+        self.edit_lane_action.setCheckable(True)
+        self.edit_lane_action.setEnabled(False)
+        self.edit_lane_action.triggered.connect(self._on_edit_lane_toggled)
+        analysis_menu.addAction(self.edit_lane_action)
+
+        analysis_menu.addSeparator()
+
+        self.clear_lanes_action = QAction("Clear All Lanes", self)
+        self.clear_lanes_action.setEnabled(False)
+        self.clear_lanes_action.triggered.connect(self._on_clear_lanes)
+        analysis_menu.addAction(self.clear_lanes_action)
+
         detect_bands_action = QAction("Detect Bands", self)
         detect_bands_action.setEnabled(False)
         analysis_menu.addAction(detect_bands_action)
@@ -263,17 +302,29 @@ class MainWindow(QMainWindow):
         # Image viewer signals
         self.image_viewer.zoom_changed.connect(self._on_zoom_changed)
         self.image_viewer.mouse_moved.connect(self._on_mouse_moved)
-        
+
         # Side panel signals
         self.side_panel.min_changed.connect(self._on_adjustments_changed)
         self.side_panel.max_changed.connect(self._on_adjustments_changed)
         self.side_panel.brightness_changed.connect(self._on_adjustments_changed)
         self.side_panel.contrast_changed.connect(self._on_adjustments_changed)
+
+        # Lane panel signals
+        self.lane_panel.detect_lanes_clicked.connect(self._on_detect_lanes)
+        self.lane_panel.draw_lane_toggled.connect(self._on_draw_lane_toggled)
+        self.lane_panel.edit_lane_toggled.connect(self._on_edit_lane_toggled)
+        self.lane_panel.lane_selected.connect(self._on_lane_selected)
+        self.lane_panel.lane_deleted.connect(self._on_lane_deleted)
+        self.lane_panel.lane_width_changed.connect(self._on_lane_width_changed)
+        self.lane_panel.calculate_profiles_clicked.connect(self._on_calculate_profiles)
+        self.lane_panel.clear_lanes_clicked.connect(self._on_clear_lanes)
+        self.lane_panel.update_plot_clicked.connect(self._on_update_plot)
         
     def _update_actions(self) -> None:
         """Update action enabled states based on whether image is loaded."""
         has_image = self.image_viewer.has_image()
-        
+        has_lanes = len(self._lanes) > 0
+
         # Enable/disable image-related actions
         self.rotate_cw_action.setEnabled(has_image)
         self.rotate_ccw_action.setEnabled(has_image)
@@ -287,9 +338,19 @@ class MainWindow(QMainWindow):
         self.zoom_out_action.setEnabled(has_image)
         self.fit_action.setEnabled(has_image)
         self.actual_size_action.setEnabled(has_image)
-        
+
+        # Analysis actions
+        self.detect_lanes_action.setEnabled(has_image)
+        self.draw_lane_action.setEnabled(has_image)
+        self.edit_lane_action.setEnabled(has_image)
+        self.calc_profiles_action.setEnabled(has_image and has_lanes)
+        self.clear_lanes_action.setEnabled(has_lanes)
+
         # Enable/disable side panel controls
         self.side_panel.set_enabled(has_image)
+
+        # Enable/disable lane panel controls
+        self.lane_panel.set_image_loaded(has_image)
         
     def open_image(self) -> None:
         """Open an image file."""
@@ -487,3 +548,175 @@ class MainWindow(QMainWindow):
             "and annotation tool.</p>"
             "<p>Built with Python and PyQt6</p>"
         )
+
+    # ------------------------------------------------------------------
+    # Lane management
+    # ------------------------------------------------------------------
+
+    def _on_detect_lanes(self) -> None:
+        """Run automatic lane detection on the current image."""
+        if not self.image_viewer.has_image():
+            return
+
+        import numpy as np
+        image = self.image_viewer.get_current_image()
+        img_array = np.array(image)
+
+        min_w = self.lane_panel.get_min_lane_width()
+        max_w = self.lane_panel.get_max_lane_width()
+
+        try:
+            detected_tuples = detect_lanes(img_array, min_lane_width=min_w, max_lane_width=max_w)
+        except Exception as e:
+            QMessageBox.warning(self, "Lane Detection", f"Detection failed: {e}")
+            return
+
+        img_height = img_array.shape[0]
+        self._lanes = [
+            Lane(
+                x_position=x_pos,
+                width=width,
+                height=img_height,
+                label=f"Lane {i + 1}",
+                y_start=0,
+                y_end=img_height,
+            )
+            for i, (x_pos, width) in enumerate(detected_tuples)
+        ]
+        self._sync_lanes()
+        self.status_bar.showMessage(f"Detected {len(detected_tuples)} lanes", 3000)
+
+    def _on_draw_lane_toggled(self, checked: bool) -> None:
+        """Toggle manual lane drawing mode."""
+        from gel_boy.gui.widgets.lane_overlay import MODE_DRAW, MODE_VIEW
+        overlay = self.image_viewer.get_lane_overlay()
+        overlay.set_mode(MODE_DRAW if checked else MODE_VIEW)
+        self.image_viewer.set_lane_overlay_visible(True)
+
+        # Sync the menu action checked state when triggered from lane panel
+        self.draw_lane_action.setChecked(checked)
+
+        # Deactivate edit mode if draw is being turned on
+        if checked and self.edit_lane_action.isChecked():
+            self.edit_lane_action.setChecked(False)
+
+        # Connect overlay signals if not yet connected
+        if not hasattr(self, '_overlay_connected'):
+            overlay.lane_added.connect(self._on_overlay_lane_added)
+            overlay.lane_removed.connect(self._on_overlay_lane_removed)
+            overlay.lane_modified.connect(self._on_overlay_lane_modified)
+            overlay.lane_selected.connect(self._on_overlay_lane_selected)
+            self._overlay_connected = True
+
+    def _on_edit_lane_toggled(self, checked: bool) -> None:
+        """Toggle lane editing mode (drag to move/resize lanes)."""
+        from gel_boy.gui.widgets.lane_overlay import MODE_EDIT, MODE_VIEW
+        overlay = self.image_viewer.get_lane_overlay()
+        overlay.set_mode(MODE_EDIT if checked else MODE_VIEW)
+        self.image_viewer.set_lane_overlay_visible(True)
+
+        # Sync menu action and lane panel button
+        self.edit_lane_action.setChecked(checked)
+        self.lane_panel.edit_btn.blockSignals(True)
+        self.lane_panel.edit_btn.setChecked(checked)
+        self.lane_panel.edit_btn.setText("Stop Editing" if checked else "Edit Lanes")
+        self.lane_panel.edit_btn.blockSignals(False)
+
+        # Deactivate draw mode if edit is being turned on
+        if checked and self.draw_lane_action.isChecked():
+            self.draw_lane_action.setChecked(False)
+
+        # Connect overlay signals if not yet connected
+        if not hasattr(self, '_overlay_connected'):
+            overlay.lane_added.connect(self._on_overlay_lane_added)
+            overlay.lane_removed.connect(self._on_overlay_lane_removed)
+            overlay.lane_modified.connect(self._on_overlay_lane_modified)
+            overlay.lane_selected.connect(self._on_overlay_lane_selected)
+            self._overlay_connected = True
+
+    def _on_lane_width_changed(self, idx: int, lane: Lane) -> None:
+        """Repaint the overlay after a lane width change from the properties panel."""
+        if hasattr(self.image_viewer, '_lane_overlay') and self.image_viewer._lane_overlay:
+            self.image_viewer._lane_overlay.update()
+
+    def _on_overlay_lane_added(self, lane: Lane) -> None:
+        """Handle a lane added via the overlay."""
+        self._lanes = self.image_viewer.get_lane_overlay().get_lanes()
+        self._sync_lanes_list_only()
+        self._update_actions()
+
+    def _on_overlay_lane_removed(self, idx: int) -> None:
+        """Handle a lane removed via the overlay."""
+        self._lanes = self.image_viewer.get_lane_overlay().get_lanes()
+        self._sync_lanes_list_only()
+        self._update_actions()
+
+    def _on_overlay_lane_modified(self, idx: int, lane: Lane) -> None:
+        """Handle a lane modified via the overlay."""
+        if 0 <= idx < len(self._lanes):
+            self._lanes[idx] = lane
+        self.lane_panel.set_lanes(self._lanes)
+
+    def _on_overlay_lane_selected(self, idx: int) -> None:
+        """Handle lane selection from the overlay."""
+        self.lane_panel.set_selected_lane(idx)
+
+    def _on_lane_selected(self, idx: int) -> None:
+        """Handle lane selection from the lane panel."""
+        self.image_viewer.get_lane_overlay().select_lane(idx)
+
+    def _on_lane_deleted(self, idx: int) -> None:
+        """Handle lane deletion from the lane panel."""
+        if 0 <= idx < len(self._lanes):
+            del self._lanes[idx]
+            self.image_viewer.get_lane_overlay().set_lanes(self._lanes)
+            self._sync_lanes_list_only()
+            self._update_actions()
+
+    def _on_clear_lanes(self) -> None:
+        """Clear all lanes."""
+        self._lanes = []
+        if hasattr(self.image_viewer, '_lane_overlay') and self.image_viewer._lane_overlay:
+            self.image_viewer._lane_overlay.clear_lanes()
+        self.lane_panel.set_lanes([])
+        self._update_actions()
+
+    def _on_calculate_profiles(self, profile_type: str = 'mean') -> None:
+        """Calculate intensity profiles for all lanes."""
+        if not self.image_viewer.has_image() or not self._lanes:
+            return
+
+        import numpy as np
+        image = self.image_viewer.get_current_image()
+        img_array = np.array(image)
+
+        for lane in self._lanes:
+            # Slice the image to the lane's vertical ROI before extracting the profile
+            roi = img_array[lane.y_start:lane.y_end, :]
+            stats = calculate_profile_statistics(
+                roi,
+                lane.x_position,
+                lane.width,
+            )
+            lane.mean_profile = stats['mean_profile']
+            lane.median_profile = stats['median_profile']
+            lane.intensity_profile = stats['mean_profile']
+
+        self.status_bar.showMessage("Profiles calculated", 3000)
+
+    def _on_update_plot(self) -> None:
+        """Push lane profiles to the intensity panel."""
+        # Trigger a re-calculation and update
+        self._on_calculate_profiles()
+
+    def _sync_lanes(self) -> None:
+        """Sync lane list to the overlay and lane panel."""
+        overlay = self.image_viewer.get_lane_overlay()
+        overlay.set_lanes(self._lanes)
+        self.image_viewer.set_lane_overlay_visible(True)
+        self.lane_panel.set_lanes(self._lanes)
+        self._update_actions()
+
+    def _sync_lanes_list_only(self) -> None:
+        """Update only the lane panel list (overlay already has the lanes)."""
+        self.lane_panel.set_lanes(self._lanes)
