@@ -3,6 +3,17 @@
 from typing import List, Tuple, Optional
 import numpy as np
 
+# Smoothing window constants for detect_lanes
+_MIN_SMOOTHING_WINDOW = 5       # floor for convolution kernel size
+_WINDOW_SCALE_FACTOR = 4        # divides min_lane_width to derive kernel size
+
+# Threshold above which a column is considered part of a lane
+_LANE_DETECTION_THRESHOLD = 0.3
+
+# Boundary-refinement search-margin constants for refine_lane_boundaries
+_MIN_SEARCH_MARGIN = 10         # floor for the pixel search margin around each edge
+_MARGIN_SCALE_FACTOR = 3        # divides lane width to derive the search margin
+
 
 def detect_lanes(
     image: np.ndarray,
@@ -45,7 +56,7 @@ def detect_lanes(
     projection = np.sum(gray, axis=0)
 
     # Smooth the projection to reduce noise
-    window = max(5, min_lane_width // 4)
+    window = max(_MIN_SMOOTHING_WINDOW, min_lane_width // _WINDOW_SCALE_FACTOR)
     smoothed = np.convolve(projection, np.ones(window) / window, mode='same')
 
     # Normalize projection
@@ -55,8 +66,7 @@ def detect_lanes(
         return []
 
     # Find peaks using simple threshold-based approach
-    threshold = 0.3
-    above = normalized > threshold
+    above = normalized > _LANE_DETECTION_THRESHOLD
 
     # Find contiguous regions above threshold
     lanes = []
@@ -126,7 +136,7 @@ def refine_lane_boundaries(
     refined = []
     for x_pos, width in initial_lanes:
         half = width // 2
-        search_margin = max(10, width // 3)
+        search_margin = max(_MIN_SEARCH_MARGIN, width // _MARGIN_SCALE_FACTOR)
 
         # Search window for left edge (strong positive gradient)
         left_start = max(0, x_pos - half - search_margin)

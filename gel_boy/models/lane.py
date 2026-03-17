@@ -109,6 +109,8 @@ class Lane:
         """
         if 0 <= index < len(self.bands):
             del self.bands[index]
+        else:
+            raise IndexError(f"Band index {index} out of range for lane with {len(self.bands)} bands")
 
     def get_intensity_profile(self) -> Optional[np.ndarray]:
         """Return the stored mean intensity profile for this lane.
