@@ -51,6 +51,9 @@ class ImageViewer(QGraphicsView):
         # Track mouse for position display
         self.setMouseTracking(True)
 
+        # Lane overlay (initially hidden)
+        self._lane_overlay: Optional['LaneOverlay'] = None
+
     def load_image(self, image: Image.Image) -> None:
         """Load an image into the viewer.
 
@@ -140,6 +143,7 @@ class ImageViewer(QGraphicsView):
             self.pixmap_item.setPixmap(pixmap)
 
         self.scene.setSceneRect(self.pixmap_item.boundingRect())
+        self._update_overlay_transform()
 
     def set_zoom(self, level: float) -> None:
         """Set the zoom level.
@@ -151,6 +155,7 @@ class ImageViewer(QGraphicsView):
         self.resetTransform()
         self.scale(level, level)
         self.zoom_changed.emit(level)
+        self._update_overlay_transform()
 
     def zoom_in(self) -> None:
         """Zoom in by 25%."""
@@ -263,3 +268,56 @@ class ImageViewer(QGraphicsView):
             True if image is loaded, False otherwise
         """
         return self.original_image is not None
+
+    def get_lane_overlay(self) -> 'LaneOverlay':
+        """Get the lane overlay widget, creating it if needed.
+
+        Returns:
+            The LaneOverlay widget
+        """
+        if self._lane_overlay is None:
+            from gel_boy.gui.widgets.lane_overlay import LaneOverlay
+            self._lane_overlay = LaneOverlay(self.viewport())
+            self._lane_overlay.resize(self.viewport().size())
+            self._update_overlay_transform()
+        return self._lane_overlay
+
+    def set_lane_overlay_visible(self, visible: bool) -> None:
+        """Show or hide the lane overlay.
+
+        Args:
+            visible: True to show overlay
+        """
+        overlay = self.get_lane_overlay()
+        overlay.setVisible(visible)
+
+    def _update_overlay_transform(self) -> None:
+        """Update the overlay's coordinate transform to match current zoom/pan."""
+        if self._lane_overlay is None or self.pixmap_item is None:
+            return
+
+        # Map the image top-left corner to viewport coordinates
+        scene_rect = self.pixmap_item.boundingRect()
+        top_left_scene = scene_rect.topLeft()
+        top_left_view = self.mapFromScene(top_left_scene)
+
+        # Map a unit pixel in image space to viewport pixels
+        one_px_right = self.mapFromScene(top_left_scene.x() + 1, top_left_scene.y())
+        one_px_down = self.mapFromScene(top_left_scene.x(), top_left_scene.y() + 1)
+
+        scale_x = one_px_right.x() - top_left_view.x()
+        scale_y = one_px_down.y() - top_left_view.y()
+
+        self._lane_overlay.set_transform(
+            1.0 / scale_x if scale_x != 0 else 1.0,
+            1.0 / scale_y if scale_y != 0 else 1.0,
+            float(top_left_view.x()),
+            float(top_left_view.y()),
+        )
+
+    def resizeEvent(self, event) -> None:
+        """Handle resize to keep overlay in sync."""
+        super().resizeEvent(event)
+        if self._lane_overlay is not None:
+            self._lane_overlay.resize(self.viewport().size())
+            self._update_overlay_transform()
