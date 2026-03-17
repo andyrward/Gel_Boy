@@ -11,7 +11,6 @@ from gel_boy.gui.widgets.image_viewer import ImageViewer
 from gel_boy.gui.widgets.side_panel import SidePanel
 from gel_boy.gui.widgets.intensity_panel import IntensityPanel
 from gel_boy.gui.widgets.lane_panel import LanePanel
-from gel_boy.gui.widgets.intensity_plot_widget import IntensityPlotWidget
 from gel_boy.io.image_loader import load_image, get_image_info, get_supported_formats
 from gel_boy.core.image_processing import (
     rotate_image, flip_image, invert_image, adjust_brightness, adjust_contrast,
@@ -192,8 +191,15 @@ class MainWindow(QMainWindow):
         self.calc_profiles_action = QAction("Calculate Profiles", self)
         self.calc_profiles_action.setShortcut(QKeySequence("Ctrl+P"))
         self.calc_profiles_action.setEnabled(False)
-        self.calc_profiles_action.triggered.connect(self._on_calculate_profiles)
+        self.calc_profiles_action.triggered.connect(lambda: self._on_calculate_profiles())
         analysis_menu.addAction(self.calc_profiles_action)
+
+        self.edit_lane_action = QAction("Edit Lanes", self)
+        self.edit_lane_action.setShortcut(QKeySequence("Ctrl+E"))
+        self.edit_lane_action.setCheckable(True)
+        self.edit_lane_action.setEnabled(False)
+        self.edit_lane_action.triggered.connect(self._on_edit_lane_toggled)
+        analysis_menu.addAction(self.edit_lane_action)
 
         analysis_menu.addSeparator()
 
@@ -306,8 +312,10 @@ class MainWindow(QMainWindow):
         # Lane panel signals
         self.lane_panel.detect_lanes_clicked.connect(self._on_detect_lanes)
         self.lane_panel.draw_lane_toggled.connect(self._on_draw_lane_toggled)
+        self.lane_panel.edit_lane_toggled.connect(self._on_edit_lane_toggled)
         self.lane_panel.lane_selected.connect(self._on_lane_selected)
         self.lane_panel.lane_deleted.connect(self._on_lane_deleted)
+        self.lane_panel.lane_width_changed.connect(self._on_lane_width_changed)
         self.lane_panel.calculate_profiles_clicked.connect(self._on_calculate_profiles)
         self.lane_panel.clear_lanes_clicked.connect(self._on_clear_lanes)
         self.lane_panel.update_plot_clicked.connect(self._on_update_plot)
@@ -334,6 +342,7 @@ class MainWindow(QMainWindow):
         # Analysis actions
         self.detect_lanes_action.setEnabled(has_image)
         self.draw_lane_action.setEnabled(has_image)
+        self.edit_lane_action.setEnabled(has_image)
         self.calc_profiles_action.setEnabled(has_image and has_lanes)
         self.clear_lanes_action.setEnabled(has_lanes)
 
@@ -575,7 +584,7 @@ class MainWindow(QMainWindow):
             for i, (x_pos, width) in enumerate(detected_tuples)
         ]
         self._sync_lanes()
-        self.status_bar.showMessage(f"Detected {len(detected)} lanes", 3000)
+        self.status_bar.showMessage(f"Detected {len(detected_tuples)} lanes", 3000)
 
     def _on_draw_lane_toggled(self, checked: bool) -> None:
         """Toggle manual lane drawing mode."""
@@ -587,6 +596,10 @@ class MainWindow(QMainWindow):
         # Sync the menu action checked state when triggered from lane panel
         self.draw_lane_action.setChecked(checked)
 
+        # Deactivate edit mode if draw is being turned on
+        if checked and self.edit_lane_action.isChecked():
+            self.edit_lane_action.setChecked(False)
+
         # Connect overlay signals if not yet connected
         if not hasattr(self, '_overlay_connected'):
             overlay.lane_added.connect(self._on_overlay_lane_added)
@@ -594,6 +607,37 @@ class MainWindow(QMainWindow):
             overlay.lane_modified.connect(self._on_overlay_lane_modified)
             overlay.lane_selected.connect(self._on_overlay_lane_selected)
             self._overlay_connected = True
+
+    def _on_edit_lane_toggled(self, checked: bool) -> None:
+        """Toggle lane editing mode (drag to move/resize lanes)."""
+        from gel_boy.gui.widgets.lane_overlay import MODE_EDIT, MODE_VIEW
+        overlay = self.image_viewer.get_lane_overlay()
+        overlay.set_mode(MODE_EDIT if checked else MODE_VIEW)
+        self.image_viewer.set_lane_overlay_visible(True)
+
+        # Sync menu action and lane panel button
+        self.edit_lane_action.setChecked(checked)
+        self.lane_panel.edit_btn.blockSignals(True)
+        self.lane_panel.edit_btn.setChecked(checked)
+        self.lane_panel.edit_btn.setText("Stop Editing" if checked else "Edit Lanes")
+        self.lane_panel.edit_btn.blockSignals(False)
+
+        # Deactivate draw mode if edit is being turned on
+        if checked and self.draw_lane_action.isChecked():
+            self.draw_lane_action.setChecked(False)
+
+        # Connect overlay signals if not yet connected
+        if not hasattr(self, '_overlay_connected'):
+            overlay.lane_added.connect(self._on_overlay_lane_added)
+            overlay.lane_removed.connect(self._on_overlay_lane_removed)
+            overlay.lane_modified.connect(self._on_overlay_lane_modified)
+            overlay.lane_selected.connect(self._on_overlay_lane_selected)
+            self._overlay_connected = True
+
+    def _on_lane_width_changed(self, idx: int, lane: Lane) -> None:
+        """Repaint the overlay after a lane width change from the properties panel."""
+        if hasattr(self.image_viewer, '_lane_overlay') and self.image_viewer._lane_overlay:
+            self.image_viewer._lane_overlay.update()
 
     def _on_overlay_lane_added(self, lane: Lane) -> None:
         """Handle a lane added via the overlay."""
@@ -647,11 +691,12 @@ class MainWindow(QMainWindow):
         img_array = np.array(image)
 
         for lane in self._lanes:
+            # Slice the image to the lane's vertical ROI before extracting the profile
+            roi = img_array[lane.y_start:lane.y_end, :]
             stats = calculate_profile_statistics(
-                img_array,
+                roi,
                 lane.x_position,
                 lane.width,
-                height=lane.y_end,
             )
             lane.mean_profile = stats['mean_profile']
             lane.median_profile = stats['median_profile']

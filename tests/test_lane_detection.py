@@ -1,7 +1,6 @@
 """Tests for lane detection algorithms."""
 
 import numpy as np
-import pytest
 from gel_boy.core.lane_detection import detect_lanes, refine_lane_boundaries, validate_lanes
 
 

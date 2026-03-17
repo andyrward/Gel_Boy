@@ -1,7 +1,7 @@
 """Lane model for gel electrophoresis analysis."""
 
 from typing import List, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import numpy as np
 
 
@@ -72,9 +72,10 @@ class Lane:
         self.label = label
         self.color = color
 
-        # Boundaries
+        # Boundaries — x_end = x_start + width ensures the slice width equals
+        # `width` for all positive values, including width == 1.
         self.x_start: int = max(0, x_position - width // 2)
-        self.x_end: int = x_position + width // 2
+        self.x_end: int = self.x_start + width
         self.y_start: int = y_start
         self.y_end: int = y_end if y_end is not None else y_start + height
 

@@ -4,15 +4,13 @@ from typing import Optional, List, Tuple, Dict
 import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QButtonGroup, QSlider, QComboBox, QTableWidget,
+    QRadioButton, QButtonGroup, QSlider, QTableWidget,
     QTableWidgetItem, QGroupBox, QSizePolicy, QFileDialog,
-    QSplitter, QToolBar, QMessageBox
+    QSplitter
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
-import matplotlib.patches as mpatches
 
 
 # Interaction modes
@@ -306,10 +304,14 @@ class IntensityPlotWidget(QWidget):
         self._update_plot()
 
     def _on_smoothing_changed(self, value: int) -> None:
-        """Handle smoothing slider change."""
-        # Snap to odd values for moving average symmetry
+        """Handle smoothing slider change, snapping to odd values."""
+        # Snap to odd values for symmetric moving-average kernel
         if value % 2 == 0:
             value = value + 1
+            # Update slider position to match snapped value (block to avoid recursion)
+            self._smooth_slider.blockSignals(True)
+            self._smooth_slider.setValue(value)
+            self._smooth_slider.blockSignals(False)
         self._smoothing = value
         self._smooth_label.setText(str(value))
         self._update_plot()
@@ -407,9 +409,14 @@ class IntensityPlotWidget(QWidget):
             start_idx = max(0, int(round(x0)))
             end_idx = int(round(x1))
 
-            # Integrate for all active lanes
+            # Clamp both indices to the actual profile length for each active lane
+            # to avoid empty slices or np.max crashes during plot annotation.
             for lane_id in self._active_lane_ids:
-                self._integrate_region(lane_id, start_idx, end_idx)
+                profile = self._get_display_profile(lane_id)
+                if profile is None:
+                    continue
+                clamped_end = min(end_idx, len(profile))
+                self._integrate_region(lane_id, start_idx, clamped_end)
 
             self._update_plot()
 

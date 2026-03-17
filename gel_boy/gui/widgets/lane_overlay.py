@@ -2,13 +2,13 @@
 
 from typing import Optional, List, Tuple
 from PyQt6.QtWidgets import (
-    QWidget, QMenu, QInputDialog, QColorDialog, QDialog,
+    QWidget, QMenu, QDialog,
     QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QLineEdit,
-    QDialogButtonBox, QApplication
+    QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt6.QtGui import (
-    QPainter, QPen, QBrush, QColor, QCursor, QMouseEvent,
+    QPainter, QPen, QBrush, QColor, QMouseEvent,
     QPaintEvent
 )
 from gel_boy.models.lane import Lane

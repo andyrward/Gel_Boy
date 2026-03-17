@@ -4,6 +4,41 @@ from typing import Tuple, Optional, List
 import numpy as np
 
 
+def _to_gray(image: np.ndarray) -> np.ndarray:
+    """Convert an image array to float32 grayscale.
+
+    Args:
+        image: 2-D grayscale or 3-D RGB numpy array
+
+    Returns:
+        2-D float32 numpy array
+    """
+    if image.ndim == 3:
+        return np.mean(image, axis=2).astype(np.float32)
+    return image.astype(np.float32)
+
+
+def _lane_x_bounds(img_width: int, x_position: int, width: int) -> Tuple[int, int]:
+    """Compute clamped lane x-boundaries that span *width* pixels when possible.
+
+    Uses ``x_end = x_start + width`` so that the slice width equals ``width``
+    for all positive values, including ``width == 1`` (which the old
+    ``x_position +/- half_width`` approach broke for odd widths).
+
+    Args:
+        img_width: Total image width in pixels
+        x_position: Lane centre x-coordinate
+        width: Desired lane width
+
+    Returns:
+        Tuple of (x_start, x_end) clamped to [0, img_width]
+    """
+    half = width // 2
+    x_start = max(0, x_position - half)
+    x_end = min(img_width, x_start + width)
+    return x_start, x_end
+
+
 def extract_lane_profile(
     image: np.ndarray,
     x_position: int,
@@ -35,18 +70,10 @@ def extract_lane_profile(
     if image is None or image.size == 0:
         return np.array([])
 
-    # Convert to grayscale if RGB
-    if image.ndim == 3:
-        gray = np.mean(image, axis=2).astype(np.float32)
-    else:
-        gray = image.astype(np.float32)
-
+    gray = _to_gray(image)
     img_height, img_width = gray.shape
-    half_width = width // 2
 
-    # Compute lane boundaries
-    x_start = max(0, x_position - half_width)
-    x_end = min(img_width, x_position + half_width)
+    x_start, x_end = _lane_x_bounds(img_width, x_position, width)
 
     if x_end <= x_start:
         return np.array([])
@@ -87,7 +114,7 @@ def smooth_profile(
         True
     """
     if profile is None or len(profile) == 0:
-        return profile
+        return np.array([], dtype=float)
 
     # Clamp window size
     window_size = max(1, window_size)
@@ -123,7 +150,7 @@ def normalize_profile(
         (0.0, 1.0)
     """
     if profile is None or len(profile) == 0:
-        return profile
+        return np.array([], dtype=float)
 
     if method == 'zscore':
         std = np.std(profile)
@@ -196,19 +223,13 @@ def calculate_profile_statistics(
     mean_profile = extract_lane_profile(image, x_position, width, height, method='mean')
     median_profile = extract_lane_profile(image, x_position, width, height, method='median')
 
-    # Compute std across width
+    # Compute std across width using the same boundary logic
     if image is None or image.size == 0:
         std_profile = np.array([])
     else:
-        if image.ndim == 3:
-            gray = np.mean(image, axis=2).astype(np.float32)
-        else:
-            gray = image.astype(np.float32)
-
+        gray = _to_gray(image)
         img_height, img_width = gray.shape
-        half_width = width // 2
-        x_start = max(0, x_position - half_width)
-        x_end = min(img_width, x_position + half_width)
+        x_start, x_end = _lane_x_bounds(img_width, x_position, width)
         y_end = height if height is not None else img_height
         y_end = min(y_end, img_height)
 

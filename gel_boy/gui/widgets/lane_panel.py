@@ -4,10 +4,10 @@ from typing import Optional, List
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QPushButton, QListWidget, QListWidgetItem, QLabel,
-    QSpinBox, QLineEdit, QColorDialog, QSplitter,
+    QSpinBox, QLineEdit, QColorDialog,
     QButtonGroup, QRadioButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from gel_boy.models.lane import Lane
 
@@ -34,8 +34,10 @@ class LanePanel(QWidget):
 
     detect_lanes_clicked = pyqtSignal()
     draw_lane_toggled = pyqtSignal(bool)
+    edit_lane_toggled = pyqtSignal(bool)
     lane_selected = pyqtSignal(int)
     lane_deleted = pyqtSignal(int)
+    lane_width_changed = pyqtSignal(int, object)   # (index, Lane)
     calculate_profiles_clicked = pyqtSignal(str)   # 'mean' or 'median'
     clear_lanes_clicked = pyqtSignal()
     update_plot_clicked = pyqtSignal()
@@ -50,6 +52,7 @@ class LanePanel(QWidget):
         self.setMinimumWidth(220)
         self._lanes: List[Lane] = []
         self._drawing_mode: bool = False
+        self._editing_mode: bool = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -101,6 +104,13 @@ class LanePanel(QWidget):
         self.draw_btn.setEnabled(False)
         self.draw_btn.toggled.connect(self._on_draw_toggled)
         draw_layout.addWidget(self.draw_btn)
+
+        self.edit_btn = QPushButton("Edit Lanes")
+        self.edit_btn.setCheckable(True)
+        self.edit_btn.setToolTip("Toggle lane editing mode — drag lanes to move/resize")
+        self.edit_btn.setEnabled(False)
+        self.edit_btn.toggled.connect(self._on_edit_toggled)
+        draw_layout.addWidget(self.edit_btn)
 
         draw_group.setLayout(draw_layout)
         layout.addWidget(draw_group)
@@ -216,6 +226,7 @@ class LanePanel(QWidget):
         """
         self.detect_btn.setEnabled(loaded)
         self.draw_btn.setEnabled(loaded)
+        self.edit_btn.setEnabled(loaded)
 
     def set_lanes(self, lanes: List[Lane]) -> None:
         """Update the lanes list widget.
@@ -280,10 +291,32 @@ class LanePanel(QWidget):
     # ------------------------------------------------------------------
 
     def _on_draw_toggled(self, checked: bool) -> None:
-        """Handle draw button toggle."""
+        """Handle draw button toggle — disables edit mode when activated."""
         self._drawing_mode = checked
         self.draw_btn.setText("Stop Drawing" if checked else "Draw Lane")
+        if checked and self._editing_mode:
+            # Turn off edit mode
+            self.edit_btn.blockSignals(True)
+            self.edit_btn.setChecked(False)
+            self.edit_btn.setText("Edit Lanes")
+            self.edit_btn.blockSignals(False)
+            self._editing_mode = False
+            self.edit_lane_toggled.emit(False)
         self.draw_lane_toggled.emit(checked)
+
+    def _on_edit_toggled(self, checked: bool) -> None:
+        """Handle edit button toggle — disables draw mode when activated."""
+        self._editing_mode = checked
+        self.edit_btn.setText("Stop Editing" if checked else "Edit Lanes")
+        if checked and self._drawing_mode:
+            # Turn off draw mode
+            self.draw_btn.blockSignals(True)
+            self.draw_btn.setChecked(False)
+            self.draw_btn.setText("Draw Lane")
+            self.draw_btn.blockSignals(False)
+            self._drawing_mode = False
+            self.draw_lane_toggled.emit(False)
+        self.edit_lane_toggled.emit(checked)
 
     def _on_lane_selected(self, row: int) -> None:
         """Handle lane list selection change."""
@@ -305,14 +338,16 @@ class LanePanel(QWidget):
             self.lanes_list.item(row).setText(self.label_edit.text() or f"Lane {row + 1}")
 
     def _on_width_changed(self, value: int) -> None:
-        """Handle width spinbox change."""
+        """Handle width spinbox change — clamps boundaries and emits lane_width_changed."""
         row = self.lanes_list.currentRow()
         if 0 <= row < len(self._lanes):
             lane = self._lanes[row]
             half = value // 2
-            lane.x_start = lane.x_position - half
-            lane.x_end = lane.x_position + half
+            x_start = max(0, lane.x_position - half)
+            lane.x_start = x_start
+            lane.x_end = x_start + value
             lane.width = value
+            self.lane_width_changed.emit(row, lane)
 
     def _on_pick_color(self) -> None:
         """Open color picker dialog."""

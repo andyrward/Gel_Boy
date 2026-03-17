@@ -36,13 +36,16 @@ Use the **Min W** and **Max W** spinboxes in the Lane Panel to filter lanes by w
 
 ### Editing Lanes
 
-With the **Edit** mode enabled on the Lane Overlay:
+Enable edit mode by clicking **Edit Lanes** in the Lane Panel, or by going to
+**Analysis → Edit Lanes** (`Ctrl+E`).
 
 | Action | Effect |
 |--------|--------|
 | Drag lane body | Reposition the entire lane |
 | Drag left/right edge handle | Resize the lane width |
 | Right-click lane | Open context menu (edit properties / delete) |
+
+Click **Edit Lanes** (or `Ctrl+E`) again to exit edit mode.
 
 You can also adjust properties in the **Lane Properties** section of the side panel:
 
@@ -147,6 +150,7 @@ Click **Export Plot** above the plot to save the current view as a PNG or SVG fi
 |----------|--------|
 | `Ctrl+L` | Auto-detect lanes |
 | `Ctrl+Shift+L` | Toggle manual lane drawing mode |
+| `Ctrl+E` | Toggle lane editing mode |
 | `Ctrl+P` | Calculate intensity profiles |
 
 ---
