@@ -575,7 +575,17 @@ class MainWindow(QMainWindow):
         if current_image is None:
             return
 
-        cropped = crop_image(current_image, x, y, width, height)
+        try:
+            cropped = crop_image(current_image, x, y, width, height)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Crop Error",
+                f"Failed to crop image: {str(e)}\n\n"
+                f"Crop region: x={x}, y={y}, width={width}, height={height}"
+            )
+            self.status_bar.showMessage("Crop failed", 3000)
+            return
 
         # Update viewer: treat cropped image as the new "current" image
         self.image_viewer.current_image = cropped
@@ -766,12 +776,15 @@ class MainWindow(QMainWindow):
         img_array = np.array(image)
 
         for idx, lane in enumerate(self._lanes):
-            # Slice the image to the lane's vertical ROI before extracting the profile
-            roi = img_array[lane.y_start:lane.y_end, :]
+            # Pass full image with y_start and height parameters so coordinates
+            # are consistent with the full image coordinate system
+            height = lane.y_end - lane.y_start
             stats = calculate_profile_statistics(
-                roi,
+                img_array,
                 lane.x_position,
                 lane.width,
+                height=height,
+                y_start=lane.y_start,
             )
             lane.mean_profile = stats['mean_profile']
             lane.median_profile = stats['median_profile']

@@ -44,6 +44,7 @@ def extract_lane_profile(
     x_position: int,
     width: int,
     height: Optional[int] = None,
+    y_start: int = 0,
     method: str = 'mean'
 ) -> np.ndarray:
     """Extract intensity profile from a lane region.
@@ -53,6 +54,7 @@ def extract_lane_profile(
         x_position: X coordinate of lane center
         width: Width of the lane in pixels
         height: Height to extract (full image height if None)
+        y_start: Y coordinate to start extraction from (default 0)
         method: Aggregation method - 'mean' or 'median'
 
     Returns:
@@ -79,11 +81,14 @@ def extract_lane_profile(
         return np.array([])
 
     # Determine y range
-    y_end = height if height is not None else img_height
-    y_end = min(y_end, img_height)
+    y_start = max(0, min(y_start, img_height))
+    if height is not None:
+        y_end = min(y_start + height, img_height)
+    else:
+        y_end = img_height
 
     # Extract lane region and aggregate across width
-    region = gray[0:y_end, x_start:x_end]
+    region = gray[y_start:y_end, x_start:x_end]
 
     if method == 'median':
         profile = np.median(region, axis=1)
@@ -196,7 +201,8 @@ def calculate_profile_statistics(
     image: np.ndarray,
     x_position: int,
     width: int,
-    height: Optional[int] = None
+    height: Optional[int] = None,
+    y_start: int = 0
 ) -> dict:
     """Calculate comprehensive statistics for a lane profile.
 
@@ -205,6 +211,7 @@ def calculate_profile_statistics(
         x_position: X coordinate of lane center
         width: Width of the lane in pixels
         height: Height to extract (full image height if None)
+        y_start: Y coordinate to start extraction from (default 0)
 
     Returns:
         Dictionary with keys:
@@ -220,8 +227,8 @@ def calculate_profile_statistics(
         >>> 'mean_profile' in stats and 'median_profile' in stats
         True
     """
-    mean_profile = extract_lane_profile(image, x_position, width, height, method='mean')
-    median_profile = extract_lane_profile(image, x_position, width, height, method='median')
+    mean_profile = extract_lane_profile(image, x_position, width, height=height, y_start=y_start, method='mean')
+    median_profile = extract_lane_profile(image, x_position, width, height=height, y_start=y_start, method='median')
 
     # Compute std across width using the same boundary logic
     if image is None or image.size == 0:
@@ -230,11 +237,15 @@ def calculate_profile_statistics(
         gray = _to_gray(image)
         img_height, img_width = gray.shape
         x_start, x_end = _lane_x_bounds(img_width, x_position, width)
-        y_end = height if height is not None else img_height
-        y_end = min(y_end, img_height)
+
+        y_start_clamped = max(0, min(y_start, img_height))
+        if height is not None:
+            y_end = min(y_start_clamped + height, img_height)
+        else:
+            y_end = img_height
 
         if x_end > x_start:
-            region = gray[0:y_end, x_start:x_end]
+            region = gray[y_start_clamped:y_end, x_start:x_end]
             std_profile = np.std(region, axis=1)
         else:
             std_profile = np.array([])

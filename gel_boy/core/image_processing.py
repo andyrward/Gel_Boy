@@ -345,5 +345,5 @@ def crop_image(
     y = max(0, min(y, img_height - 1))
     width = max(1, min(width, img_width - x))
     height = max(1, min(height, img_height - y))
-    
+
     return image.crop((x, y, x + width, y + height))
