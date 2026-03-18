@@ -267,15 +267,29 @@ class ImageViewer(QGraphicsView):
                 self._crop_rubber_band.hide()
             self._crop_start = None
 
+            # Check if we have an image loaded
+            if self.current_image is None:
+                return
+
             # Convert viewport rectangle to image coordinates
             scene_tl = self.mapToScene(rect.topLeft())
             scene_br = self.mapToScene(rect.bottomRight())
 
-            x = int(scene_tl.x())
-            y = int(scene_tl.y())
-            w = int(scene_br.x() - scene_tl.x())
-            h = int(scene_br.y() - scene_tl.y())
+            # Get image dimensions
+            img_width = self.current_image.width
+            img_height = self.current_image.height
 
+            # Clamp coordinates to image bounds
+            x = max(0, min(int(scene_tl.x()), img_width - 1))
+            y = max(0, min(int(scene_tl.y()), img_height - 1))
+            x_end = max(0, min(int(scene_br.x()), img_width))
+            y_end = max(0, min(int(scene_br.y()), img_height))
+
+            # Calculate width and height after clamping
+            w = x_end - x
+            h = y_end - y
+
+            # Validate minimum size after clamping
             if w >= 10 and h >= 10:
                 self.crop_selected.emit(x, y, w, h)
         else:
