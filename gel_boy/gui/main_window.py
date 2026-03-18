@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence
 from gel_boy.gui.widgets.image_viewer import ImageViewer
 from gel_boy.gui.widgets.side_panel import SidePanel
-from gel_boy.gui.widgets.intensity_panel import IntensityPanel
+from gel_boy.gui.widgets.intensity_plot_widget import IntensityPlotWidget
 from gel_boy.gui.widgets.lane_panel import LanePanel
 from gel_boy.io.image_loader import load_image, get_image_info, get_supported_formats
 from gel_boy.core.image_processing import (
@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
         v_splitter.addWidget(h_splitter)
         
         # Create bottom panel
-        self.intensity_panel = IntensityPanel()
+        self.intensity_panel = IntensityPlotWidget()
         v_splitter.addWidget(self.intensity_panel)
         
         # Set initial sizes (top gets most space)
@@ -672,6 +672,9 @@ class MainWindow(QMainWindow):
             self.image_viewer.get_lane_overlay().set_lanes(self._lanes)
             self._sync_lanes_list_only()
             self._update_actions()
+            self.intensity_panel.remove_lane(idx)
+            # Re-index remaining lanes in the plot
+            self._on_update_plot()
 
     def _on_clear_lanes(self) -> None:
         """Clear all lanes."""
@@ -680,6 +683,7 @@ class MainWindow(QMainWindow):
             self.image_viewer._lane_overlay.clear_lanes()
         self.lane_panel.set_lanes([])
         self._update_actions()
+        self.intensity_panel.clear_all()
 
     def _on_calculate_profiles(self, profile_type: str = 'mean') -> None:
         """Calculate intensity profiles for all lanes."""
@@ -690,7 +694,7 @@ class MainWindow(QMainWindow):
         image = self.image_viewer.get_current_image()
         img_array = np.array(image)
 
-        for lane in self._lanes:
+        for idx, lane in enumerate(self._lanes):
             # Slice the image to the lane's vertical ROI before extracting the profile
             roi = img_array[lane.y_start:lane.y_end, :]
             stats = calculate_profile_statistics(
@@ -702,11 +706,19 @@ class MainWindow(QMainWindow):
             lane.median_profile = stats['median_profile']
             lane.intensity_profile = stats['mean_profile']
 
+            self.intensity_panel.set_profile(
+                idx,
+                lane.mean_profile,
+                lane.median_profile,
+                label=lane.label if lane.label else f"Lane {idx + 1}",
+                color=lane.color,
+            )
+
         self.status_bar.showMessage("Profiles calculated", 3000)
 
     def _on_update_plot(self) -> None:
         """Push lane profiles to the intensity panel."""
-        # Trigger a re-calculation and update
+        self.intensity_panel.clear_all()
         self._on_calculate_profiles()
 
     def _sync_lanes(self) -> None:
