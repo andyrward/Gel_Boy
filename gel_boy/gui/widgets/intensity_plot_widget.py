@@ -70,6 +70,10 @@ class IntensityPlotWidget(QWidget):
         self._bg_markers: List = []
         self._bg_line_artists: List = []
 
+        # Pop-out state
+        self._is_popped_out: bool = False
+        self._pop_out_dialog = None   # IntensityPlotDialog reference
+
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -208,6 +212,11 @@ class IntensityPlotWidget(QWidget):
         export_btn.clicked.connect(self._export_plot)
         layout.addWidget(export_btn)
 
+        self._pop_out_btn = QPushButton("🗗 Pop Out Plot")
+        self._pop_out_btn.setToolTip("Open the plot in a separate window")
+        self._pop_out_btn.clicked.connect(self.pop_out)
+        layout.addWidget(self._pop_out_btn)
+
         layout.addStretch()
         return layout
 
@@ -339,6 +348,72 @@ class IntensityPlotWidget(QWidget):
         )
         if path:
             self.figure.savefig(path, dpi=150, bbox_inches='tight')
+
+    # ------------------------------------------------------------------
+    # Pop-out / dock-back
+    # ------------------------------------------------------------------
+
+    def pop_out(self) -> None:
+        """Detach this widget from the main window and show it in its own dialog."""
+        if self._is_popped_out:
+            # Already popped out – bring the dialog to the front
+            if self._pop_out_dialog is not None:
+                self._pop_out_dialog.raise_()
+                self._pop_out_dialog.activateWindow()
+            return
+
+        from gel_boy.gui.dialogs.intensity_plot_dialog import IntensityPlotDialog
+
+        # Ask the main window to swap this widget for a placeholder
+        main_window = self._find_main_window()
+        if main_window is not None:
+            main_window._on_plot_popped_out()
+
+        self._is_popped_out = True
+        self._pop_out_btn.setText("⬇ Dock Back")
+        self._pop_out_btn.setToolTip("Return the plot to the main window")
+        self._pop_out_btn.clicked.disconnect()
+        self._pop_out_btn.clicked.connect(self.dock_back)
+
+        self._pop_out_dialog = IntensityPlotDialog(self, main_window)
+        self._pop_out_dialog.show()
+
+    def dock_back(self) -> None:
+        """Return this widget from the dialog back into the main window."""
+        if not self._is_popped_out:
+            return
+
+        self._is_popped_out = False
+        self._pop_out_btn.setText("🗗 Pop Out Plot")
+        self._pop_out_btn.setToolTip("Open the plot in a separate window")
+        self._pop_out_btn.clicked.disconnect()
+        self._pop_out_btn.clicked.connect(self.pop_out)
+
+        # Ask the main window to restore this widget
+        main_window = self._find_main_window()
+        if main_window is not None:
+            main_window._on_plot_docked_back(self)
+
+        # Close the dialog without triggering its closeEvent handler again
+        if self._pop_out_dialog is not None:
+            dialog = self._pop_out_dialog
+            self._pop_out_dialog = None
+            dialog.blockSignals(True)
+            dialog.hide()
+
+    def _find_main_window(self):
+        """Walk up the widget hierarchy to find the MainWindow instance.
+
+        Returns:
+            The :class:`MainWindow` parent, or ``None`` if not found.
+        """
+        from gel_boy.gui.main_window import MainWindow
+        widget = self.parent()
+        while widget is not None:
+            if isinstance(widget, MainWindow):
+                return widget
+            widget = widget.parent()
+        return None
 
     # ------------------------------------------------------------------
     # Mouse interaction on plot

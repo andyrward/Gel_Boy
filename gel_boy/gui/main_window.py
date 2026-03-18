@@ -14,7 +14,7 @@ from gel_boy.gui.widgets.lane_panel import LanePanel
 from gel_boy.io.image_loader import load_image, get_image_info, get_supported_formats
 from gel_boy.core.image_processing import (
     rotate_image, flip_image, invert_image, adjust_brightness, adjust_contrast,
-    rotate_image_precise, apply_lut_adjustments
+    rotate_image_precise, apply_lut_adjustments, crop_image
 )
 from gel_boy.core.lane_detection import detect_lanes
 from gel_boy.core.intensity_analysis import calculate_profile_statistics
@@ -76,10 +76,17 @@ class MainWindow(QMainWindow):
         # Create vertical splitter for main content and bottom panel
         v_splitter = QSplitter(Qt.Orientation.Vertical)
         v_splitter.addWidget(h_splitter)
+        self.v_splitter = v_splitter  # keep reference for pop-out/dock-back
         
         # Create bottom panel
         self.intensity_panel = IntensityPlotWidget()
         v_splitter.addWidget(self.intensity_panel)
+        
+        # Placeholder shown when the plot is popped out
+        self._placeholder_label = QLabel("Plot is shown in separate window")
+        self._placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder_label.setStyleSheet("color: gray; font-style: italic;")
+        self._placeholder_label.hide()
         
         # Set initial sizes (top gets most space)
         v_splitter.setStretchFactor(0, 4)
@@ -171,6 +178,15 @@ class MainWindow(QMainWindow):
         self.reset_action.setShortcut(QKeySequence("Ctrl+0"))
         self.reset_action.triggered.connect(self.reset_image)
         image_menu.addAction(self.reset_action)
+        
+        image_menu.addSeparator()
+        
+        self.crop_action = QAction("Crop Image...", self)
+        self.crop_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        self.crop_action.setCheckable(True)
+        self.crop_action.setEnabled(False)
+        self.crop_action.triggered.connect(self._on_crop_toggled)
+        image_menu.addAction(self.crop_action)
         
         # Analysis menu
         analysis_menu = menubar.addMenu("&Analysis")
@@ -302,6 +318,7 @@ class MainWindow(QMainWindow):
         # Image viewer signals
         self.image_viewer.zoom_changed.connect(self._on_zoom_changed)
         self.image_viewer.mouse_moved.connect(self._on_mouse_moved)
+        self.image_viewer.crop_selected.connect(self._on_crop_selected)
 
         # Side panel signals
         self.side_panel.min_changed.connect(self._on_adjustments_changed)
@@ -338,6 +355,7 @@ class MainWindow(QMainWindow):
         self.zoom_out_action.setEnabled(has_image)
         self.fit_action.setEnabled(has_image)
         self.actual_size_action.setEnabled(has_image)
+        self.crop_action.setEnabled(has_image)
 
         # Analysis actions
         self.detect_lanes_action.setEnabled(has_image)
@@ -520,6 +538,59 @@ class MainWindow(QMainWindow):
         """Reset image to original."""
         self.image_viewer.reset_image()
         self.side_panel.reset_values()
+
+    def _on_crop_toggled(self, checked: bool) -> None:
+        """Toggle crop selection mode on the image viewer."""
+        self.image_viewer.set_crop_mode(checked)
+        if checked:
+            self.status_bar.showMessage(
+                "Drag to select crop region (Ctrl+Shift+C to cancel)", 0
+            )
+        else:
+            self.status_bar.clearMessage()
+
+    def _on_crop_selected(self, x: int, y: int, width: int, height: int) -> None:
+        """Handle a completed crop selection from the image viewer.
+
+        Shows a confirmation dialog, then applies the crop if confirmed.
+
+        Args:
+            x: Left edge of the crop rectangle in image pixels.
+            y: Top edge of the crop rectangle in image pixels.
+            width: Width of the crop rectangle.
+            height: Height of the crop rectangle.
+        """
+        from gel_boy.gui.dialogs.crop_dialog import CropDialog
+
+        # Turn off crop mode (uncheck the action)
+        self.image_viewer.set_crop_mode(False)
+        self.crop_action.setChecked(False)
+        self.status_bar.clearMessage()
+
+        if not CropDialog.confirm_crop(x, y, width, height, self):
+            return
+
+        # Apply crop to current image
+        current_image = self.image_viewer.get_current_image()
+        if current_image is None:
+            return
+
+        cropped = crop_image(current_image, x, y, width, height)
+
+        # Update viewer: treat cropped image as the new "current" image
+        self.image_viewer.current_image = cropped
+        self.image_viewer.update_display()
+        self.image_viewer.fit_to_window()
+
+        # Clear lanes – they are no longer valid after cropping
+        self._on_clear_lanes()
+
+        # Update histogram
+        self.side_panel.update_histogram(cropped)
+
+        # Update status bar image info
+        self._update_image_info()
+        self.status_bar.showMessage("Image cropped", 3000)
         
     def zoom_in(self) -> None:
         """Zoom in."""
@@ -720,6 +791,31 @@ class MainWindow(QMainWindow):
         """Push lane profiles to the intensity panel."""
         self.intensity_panel.clear_all()
         self._on_calculate_profiles()
+
+    # ------------------------------------------------------------------
+    # Pop-out / dock-back for intensity plot
+    # ------------------------------------------------------------------
+
+    def _on_plot_popped_out(self) -> None:
+        """Replace the intensity panel in the splitter with a placeholder."""
+        # Insert placeholder at the position currently occupied by the panel
+        idx = self.v_splitter.indexOf(self.intensity_panel)
+        if idx >= 0:
+            self.intensity_panel.setParent(None)  # detach from splitter
+            self.v_splitter.insertWidget(idx, self._placeholder_label)
+            self._placeholder_label.show()
+
+    def _on_plot_docked_back(self, plot_widget) -> None:
+        """Restore the intensity panel widget into the splitter."""
+        idx = self.v_splitter.indexOf(self._placeholder_label)
+        if idx >= 0:
+            self._placeholder_label.hide()
+            self._placeholder_label.setParent(None)
+            self.v_splitter.insertWidget(idx, plot_widget)
+        else:
+            # Fallback: add at the end
+            self.v_splitter.addWidget(plot_widget)
+        self.v_splitter.setStretchFactor(self.v_splitter.indexOf(plot_widget), 1)
 
     def _sync_lanes(self) -> None:
         """Sync lane list to the overlay and lane panel."""
