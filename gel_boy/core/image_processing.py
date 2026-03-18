@@ -320,22 +320,30 @@ def apply_gaussian_blur(image: np.ndarray, sigma: float = 1.0) -> np.ndarray:
 
 
 def crop_image(
-    image: np.ndarray,
+    image: Image.Image,
     x: int,
     y: int,
     width: int,
     height: int
-) -> np.ndarray:
-    """Crop image to specified region.
+) -> Image.Image:
+    """Crop image to specified rectangle.
     
     Args:
-        image: Input image as numpy array
-        x: Left edge of crop region
-        y: Top edge of crop region
-        width: Width of crop region
-        height: Height of crop region
+        image: PIL Image to crop
+        x: Left edge of crop region (clamped to image bounds)
+        y: Top edge of crop region (clamped to image bounds)
+        width: Width of crop region (clamped to image bounds)
+        height: Height of crop region (clamped to image bounds)
         
     Returns:
-        Cropped image
+        Cropped PIL Image
     """
-    pass
+    img_width, img_height = image.size
+    
+    # Clamp coordinates to image bounds
+    x = max(0, min(x, img_width - 1))
+    y = max(0, min(y, img_height - 1))
+    width = max(1, min(width, img_width - x))
+    height = max(1, min(height, img_height - y))
+    
+    return image.crop((x, y, x + width, y + height))

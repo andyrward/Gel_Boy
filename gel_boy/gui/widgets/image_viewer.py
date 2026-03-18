@@ -1,11 +1,14 @@
 """Custom image display widget for gel electrophoresis images."""
 
 from typing import Optional
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
-from PyQt6.QtGui import QPixmap, QPainter, QImage, QWheelEvent, QMouseEvent
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QRubberBand
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRect, QPoint, QSize
+from PyQt6.QtGui import QPixmap, QPainter, QImage, QWheelEvent, QMouseEvent, QCursor
 from PIL import Image
 import numpy as np
+
+# Viewer interaction modes
+MODE_CROP = "crop"
 
 
 class ImageViewer(QGraphicsView):
@@ -17,6 +20,7 @@ class ImageViewer(QGraphicsView):
     image_clicked = pyqtSignal(int, int)  # Emits x, y coordinates
     zoom_changed = pyqtSignal(float)  # Emits zoom level
     mouse_moved = pyqtSignal(int, int)  # Emits mouse position on image
+    crop_selected = pyqtSignal(int, int, int, int)  # x, y, width, height in image coords
 
     def __init__(self, parent: Optional[QGraphicsView] = None):
         """Initialize the image viewer.
@@ -53,6 +57,11 @@ class ImageViewer(QGraphicsView):
 
         # Lane overlay (initially hidden)
         self._lane_overlay: Optional['LaneOverlay'] = None
+
+        # Crop mode state
+        self._crop_mode: bool = False
+        self._crop_start: Optional[QPoint] = None
+        self._crop_rubber_band: Optional[QRubberBand] = None
 
     def load_image(self, image: Image.Image) -> None:
         """Load an image into the viewer.
@@ -199,12 +208,19 @@ class ImageViewer(QGraphicsView):
             self.set_zoom(self.zoom_level / factor)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        """Handle mouse move to emit position.
+        """Handle mouse move to emit position and update crop rubber band.
 
         Args:
             event: Mouse event
         """
-        super().mouseMoveEvent(event)
+        if self._crop_mode and self._crop_start is not None:
+            # Update rubber band selection
+            if self._crop_rubber_band is not None:
+                self._crop_rubber_band.setGeometry(
+                    QRect(self._crop_start, event.pos()).normalized()
+                )
+        else:
+            super().mouseMoveEvent(event)
 
         if self.pixmap_item is None:
             return
@@ -217,6 +233,74 @@ class ImageViewer(QGraphicsView):
             x = int(scene_pos.x())
             y = int(scene_pos.y())
             self.mouse_moved.emit(x, y)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse press to start crop selection.
+
+        Args:
+            event: Mouse event
+        """
+        if self._crop_mode and event.button() == Qt.MouseButton.LeftButton:
+            self._crop_start = event.pos()
+            if self._crop_rubber_band is None:
+                self._crop_rubber_band = QRubberBand(
+                    QRubberBand.Shape.Rectangle, self.viewport()
+                )
+            self._crop_rubber_band.setGeometry(QRect(self._crop_start, QSize()))
+            self._crop_rubber_band.show()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse release to finalise crop selection.
+
+        Args:
+            event: Mouse event
+        """
+        if (
+            self._crop_mode
+            and self._crop_start is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            rect = QRect(self._crop_start, event.pos()).normalized()
+            if self._crop_rubber_band is not None:
+                self._crop_rubber_band.hide()
+            self._crop_start = None
+
+            # Convert viewport rectangle to image coordinates
+            scene_tl = self.mapToScene(rect.topLeft())
+            scene_br = self.mapToScene(rect.bottomRight())
+
+            x = int(scene_tl.x())
+            y = int(scene_tl.y())
+            w = int(scene_br.x() - scene_tl.x())
+            h = int(scene_br.y() - scene_tl.y())
+
+            if w >= 10 and h >= 10:
+                self.crop_selected.emit(x, y, w, h)
+        else:
+            super().mouseReleaseEvent(event)
+
+    def set_crop_mode(self, enabled: bool) -> None:
+        """Enable or disable crop selection mode.
+
+        In crop mode the normal scroll-hand drag is disabled and the cursor
+        changes to a crosshair so the user can drag out a crop rectangle.
+
+        Args:
+            enabled: ``True`` to enter crop mode, ``False`` to leave it.
+        """
+        self._crop_mode = enabled
+        if enabled:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.unsetCursor()
+            # Hide rubber band if visible
+            if self._crop_rubber_band is not None:
+                self._crop_rubber_band.hide()
+            self._crop_start = None
 
     def apply_transformation(self, transform_func, *args) -> None:
         """Apply transformation to current image (non-destructive).
