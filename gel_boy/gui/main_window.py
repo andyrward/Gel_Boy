@@ -765,9 +765,21 @@ class MainWindow(QMainWindow):
         image = self.image_viewer.get_current_image()
         img_array = np.array(image)
 
+        img_height, img_width = img_array.shape[:2]
+
         for idx, lane in enumerate(self._lanes):
-            # Slice the image to the lane's vertical ROI before extracting the profile
-            roi = img_array[lane.y_start:lane.y_end, :]
+            # Clamp y bounds to valid image range to prevent negative-index
+            # slicing (which silently wraps around in NumPy).
+            y_start = max(0, min(lane.y_start, img_height))
+            y_end = max(y_start, min(lane.y_end, img_height))
+
+            if y_start >= y_end:
+                # Invalid ROI – fall back to the full image height
+                roi = img_array
+            else:
+                roi = img_array[y_start:y_end, :]
+
+            # X coordinates remain valid after a vertical-only crop.
             stats = calculate_profile_statistics(
                 roi,
                 lane.x_position,
