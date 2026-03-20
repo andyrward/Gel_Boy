@@ -42,9 +42,12 @@ class GelBoyNapariApp:
         self._original_pil_image = None   # PIL Image for reset (never mutated)
         self._current_pil_image = None    # PIL Image reflecting applied operations
         self._profiles: List[np.ndarray] = []
+        self._updating_lanes: bool = False  # guard against callback re-entry
 
         self._setup_widgets()
         self._setup_keybindings()
+        self._ensure_lanes_layer()
+        self._setup_lanes_callbacks()
 
     # ------------------------------------------------------------------
     # Widget / keybinding setup
@@ -57,8 +60,25 @@ class GelBoyNapariApp:
             make_profile_widget,
             make_peak_integration_widget,
             make_image_ops_widget,
+            make_file_ops_widget,
+            make_rotation_widget,
         )
 
+        self.viewer.window.add_dock_widget(
+            make_file_ops_widget(self),
+            name="File",
+            area="left",
+        )
+        self.viewer.window.add_dock_widget(
+            make_image_ops_widget(self),
+            name="Image Operations",
+            area="left",
+        )
+        self.viewer.window.add_dock_widget(
+            make_rotation_widget(self),
+            name="Rotation",
+            area="left",
+        )
         self.viewer.window.add_dock_widget(
             make_lane_detection_widget(self),
             name="Lane Detection",
@@ -73,11 +93,6 @@ class GelBoyNapariApp:
             make_peak_integration_widget(self),
             name="Peak Integration",
             area="right",
-        )
-        self.viewer.window.add_dock_widget(
-            make_image_ops_widget(self),
-            name="Image Operations",
-            area="left",
         )
 
     def _setup_keybindings(self) -> None:
@@ -94,12 +109,44 @@ class GelBoyNapariApp:
         @self.viewer.bind_key("d")
         def _kb_draw_lane(viewer):
             """Toggle rectangle-drawing mode on the Lanes layer."""
-            if self._LANES_LAYER in viewer.layers:
-                layer = viewer.layers[self._LANES_LAYER]
-                if layer.mode == "add_rectangle":
-                    layer.mode = "pan_zoom"
-                else:
-                    layer.mode = "add_rectangle"
+            self._toggle_lane_drawing()
+
+    # ------------------------------------------------------------------
+    # Lane layer helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_lanes_layer(self) -> None:
+        """Create the Lanes Shapes layer if it does not yet exist."""
+        if self._LANES_LAYER not in self.viewer.layers:
+            self.viewer.add_shapes(
+                [],
+                shape_type="rectangle",
+                edge_color="cyan",
+                face_color=[0, 1, 1, 0.3],
+                edge_width=2,
+                name=self._LANES_LAYER,
+            )
+
+    def _setup_lanes_callbacks(self) -> None:
+        """Connect the Lanes layer data-changed event to the sync callback."""
+        if self._LANES_LAYER in self.viewer.layers:
+            layer = self.viewer.layers[self._LANES_LAYER]
+            layer.events.data.connect(self._on_lanes_layer_changed)
+
+    def _on_lanes_layer_changed(self, event=None) -> None:
+        """Sync ``self.lanes`` when the user manually adds/edits shapes."""
+        if self._updating_lanes:
+            return
+        self._sync_lanes_from_layer()
+
+    def _toggle_lane_drawing(self) -> None:
+        """Toggle rectangle-drawing mode on the Lanes layer."""
+        if self._LANES_LAYER in self.viewer.layers:
+            layer = self.viewer.layers[self._LANES_LAYER]
+            if layer.mode == "add_rectangle":
+                layer.mode = "pan_zoom"
+            else:
+                layer.mode = "add_rectangle"
 
     # ------------------------------------------------------------------
     # Image loading
@@ -193,31 +240,24 @@ class GelBoyNapariApp:
             build_lane_properties,
         )
 
+        self._ensure_lanes_layer()
+        layer = self.viewer.layers[self._LANES_LAYER]
+
         rects = lanes_to_napari_rects(self.lanes)
-        if not rects:
-            if self._LANES_LAYER in self.viewer.layers:
-                self.viewer.layers[self._LANES_LAYER].data = []
-            return
+        self._updating_lanes = True
+        try:
+            if not rects:
+                layer.data = []
+            else:
+                edge_colors, face_colors = lane_colors_for_napari(self.lanes)
+                props = build_lane_properties(self.lanes)
 
-        edge_colors, face_colors = lane_colors_for_napari(self.lanes)
-        props = build_lane_properties(self.lanes)
-
-        if self._LANES_LAYER in self.viewer.layers:
-            layer = self.viewer.layers[self._LANES_LAYER]
-            layer.data = rects
-            layer.edge_color = edge_colors
-            layer.face_color = face_colors
-            layer.properties = props
-        else:
-            self.viewer.add_shapes(
-                rects,
-                shape_type="rectangle",
-                edge_color=edge_colors,
-                face_color=face_colors,
-                edge_width=2,
-                name=self._LANES_LAYER,
-                properties=props,
-            )
+                layer.data = rects
+                layer.edge_color = edge_colors
+                layer.face_color = face_colors
+                layer.properties = props
+        finally:
+            self._updating_lanes = False
 
     def _sync_lanes_from_layer(self) -> None:
         """Update ``self.lanes`` from the current Shapes layer data.
@@ -430,6 +470,25 @@ class GelBoyNapariApp:
             return
 
         self._set_image_data(pil_image_to_numpy(self._current_pil_image))
+
+    def apply_rotation_precise(self, angle: float, expand: bool = False) -> None:
+        """Rotate the current image by an arbitrary angle.
+
+        Args:
+            angle: Rotation angle in degrees (positive = counter-clockwise).
+            expand: If ``True``, the canvas is expanded to fit the full
+                    rotated image; otherwise the output is cropped to the
+                    original dimensions.
+        """
+        from gel_boy.core.image_processing import rotate_image_precise
+        from gel_boy.gui.napari_utils import pil_image_to_numpy
+
+        if self._current_pil_image is None:
+            return
+
+        img = rotate_image_precise(self._current_pil_image, angle, expand=expand)
+        self._current_pil_image = img
+        self._set_image_data(pil_image_to_numpy(img))
 
     # ------------------------------------------------------------------
     # Application lifecycle
