@@ -19,6 +19,15 @@ def rotate_image(image: Image.Image, angle: int) -> Image.Image:
     return image.rotate(-angle, expand=True)
 
 
+def _rgb_to_scalar(color: Tuple[int, int, int]) -> float:
+    """Convert an RGB color tuple to a luminance scalar.
+
+    Used to derive an appropriate fill value for grayscale / integer-mode
+    images when the caller supplies an RGB fill color.
+    """
+    return 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+
+
 def rotate_image_precise(
     image: Image.Image,
     angle: float,
@@ -34,17 +43,43 @@ def rotate_image_precise(
         fillcolor: Color for areas outside original image (default: black for RGB, 0 for grayscale)
         
     Returns:
-        Rotated PIL Image
+        Rotated PIL Image with the same mode as the input
     """
-    # PIL's rotate uses counter-clockwise angles
-    # If fillcolor not specified, use appropriate default
-    if fillcolor is None:
-        if image.mode == 'RGB' or image.mode == 'RGBA':
-            fillcolor = (0, 0, 0)
+    original_mode = image.mode
+
+    # 16-bit images ('I' = 32-bit signed int in PIL, 'I;16' = raw 16-bit) must be
+    # converted to float ('F') for BICUBIC resampling support, then converted back.
+    if original_mode in ('I', 'I;16'):
+        work_image = image.convert('F')
+        fill_f: float = (
+            _rgb_to_scalar(fillcolor) if isinstance(fillcolor, tuple)
+            else float(fillcolor) if fillcolor is not None
+            else 0.0
+        )
+        rotated = work_image.rotate(
+            angle, expand=expand, fillcolor=fill_f, resample=Image.BICUBIC
+        )
+        return rotated.convert(original_mode)
+
+    # For non-RGB/RGBA modes (e.g. 'L'), ensure fillcolor is a scalar integer
+    fill_i: object
+    if original_mode not in ('RGB', 'RGBA'):
+        if fillcolor is None:
+            fill_i = 0
+        elif isinstance(fillcolor, tuple):
+            fill_i = int(round(_rgb_to_scalar(fillcolor)))
         else:
-            fillcolor = 0
-    
-    return image.rotate(angle, expand=expand, fillcolor=fillcolor, resample=Image.BICUBIC)
+            fill_i = int(fillcolor)
+    else:
+        fill_i = fillcolor if fillcolor is not None else (0, 0, 0)
+
+    rotated = image.rotate(angle, expand=expand, fillcolor=fill_i, resample=Image.BICUBIC)
+
+    # Preserve original mode in case PIL changed it during rotation
+    if rotated.mode != original_mode:
+        rotated = rotated.convert(original_mode)
+
+    return rotated
 
 
 def flip_image(image: Image.Image, horizontal: bool = True) -> Image.Image:
