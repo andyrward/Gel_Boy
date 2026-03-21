@@ -375,6 +375,23 @@ class ImageViewer(QGraphicsView):
         overlay = self.get_lane_overlay()
         overlay.setVisible(visible)
 
+    def set_lane_drag_mode(self, drawing_active: bool) -> None:
+        """Enable or disable panning while lane draw/edit mode is active.
+
+        When the lane overlay is in DRAW or EDIT mode the scroll-hand drag must
+        be disabled so that mouse events reach the overlay instead of panning
+        the view.  Mirrors the behaviour of :meth:`set_crop_mode`.
+
+        Args:
+            drawing_active: ``True`` when entering draw/edit mode (disables
+                panning), ``False`` when returning to view mode (re-enables
+                panning).
+        """
+        if drawing_active:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+
     def _update_overlay_transform(self) -> None:
         """Update the overlay's coordinate transform to match current zoom/pan."""
         if self._lane_overlay is None or self.pixmap_item is None:

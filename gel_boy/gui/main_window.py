@@ -663,6 +663,7 @@ class MainWindow(QMainWindow):
         overlay = self.image_viewer.get_lane_overlay()
         overlay.set_mode(MODE_DRAW if checked else MODE_VIEW)
         self.image_viewer.set_lane_overlay_visible(True)
+        self.image_viewer.set_lane_drag_mode(checked)
 
         # Sync the menu action checked state when triggered from lane panel
         self.draw_lane_action.setChecked(checked)
@@ -685,6 +686,7 @@ class MainWindow(QMainWindow):
         overlay = self.image_viewer.get_lane_overlay()
         overlay.set_mode(MODE_EDIT if checked else MODE_VIEW)
         self.image_viewer.set_lane_overlay_visible(True)
+        self.image_viewer.set_lane_drag_mode(checked)
 
         # Sync menu action and lane panel button
         self.edit_lane_action.setChecked(checked)
