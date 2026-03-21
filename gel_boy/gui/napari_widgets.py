@@ -16,19 +16,60 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Lane detection widget
+# File operations widget
 # ---------------------------------------------------------------------------
 
-def make_lane_detection_widget(app: "GelBoyNapariApp"):
-    """Create and return the lane-detection magicgui widget.
+def make_file_ops_widget(app: "GelBoyNapariApp"):
+    """Create and return the file-operations widget.
 
     Args:
         app: The :class:`GelBoyNapariApp` instance that owns this widget.
 
     Returns:
-        A magicgui widget ready to be docked into the napari viewer.
+        A magicgui Container widget ready to be docked into the napari viewer.
+    """
+    from magicgui.widgets import Container, PushButton, Label
+
+    filename_label = Label(value="No image loaded", label="")
+
+    def open_image():
+        from pathlib import Path
+        from gel_boy.io.image_loader import get_supported_formats
+        from qtpy.QtWidgets import QFileDialog
+
+        formats = get_supported_formats()
+        filter_str = "Images (" + " ".join(formats) + ")"
+        filepath, _ = QFileDialog.getOpenFileName(
+            caption="Open Gel Image",
+            filter=filter_str,
+        )
+        if filepath:
+            if app.load_image(filepath):
+                filename_label.value = Path(filepath).name
+            else:
+                filename_label.value = "Error loading file"
+
+    open_btn = PushButton(text="Open Image...")
+    open_btn.changed.connect(open_image)
+
+    return Container(widgets=[open_btn, filename_label], labels=False)
+
+
+# ---------------------------------------------------------------------------
+# Lane detection widget
+# ---------------------------------------------------------------------------
+
+def make_lane_detection_widget(app: "GelBoyNapariApp"):
+    """Create and return the lane-detection widget.
+
+    Args:
+        app: The :class:`GelBoyNapariApp` instance that owns this widget.
+
+    Returns:
+        A magicgui Container widget ready to be docked into the napari viewer.
     """
     from magicgui import magicgui
+    from magicgui.widgets import Container, PushButton
 
     @magicgui(
         call_button="Detect Lanes",
@@ -45,7 +86,10 @@ def make_lane_detection_widget(app: "GelBoyNapariApp"):
             max_lane_width=max_lane_width,
         )
 
-    return detect_lanes_widget
+    draw_btn = PushButton(text="Draw Lane Manually")
+    draw_btn.changed.connect(lambda: app._toggle_lane_drawing())
+
+    return Container(widgets=[detect_lanes_widget, draw_btn], labels=False)
 
 
 # ---------------------------------------------------------------------------
@@ -145,3 +189,38 @@ def make_image_ops_widget(app: "GelBoyNapariApp"):
         app.apply_image_operation(operation)
 
     return image_ops_widget
+
+
+# ---------------------------------------------------------------------------
+# Precise rotation widget
+# ---------------------------------------------------------------------------
+
+def make_rotation_widget(app: "GelBoyNapariApp"):
+    """Create and return the precise-rotation widget.
+
+    Args:
+        app: The :class:`GelBoyNapariApp` instance that owns this widget.
+
+    Returns:
+        A magicgui widget ready to be docked into the napari viewer.
+    """
+    from magicgui import magicgui
+
+    @magicgui(
+        call_button="Apply Rotation",
+        angle={
+            "label": "Angle (°)",
+            "min": -180.0,
+            "max": 180.0,
+            "step": 0.5,
+        },
+        expand_canvas={"label": "Expand canvas"},
+    )
+    def rotation_widget(
+        angle: float = 0.0,
+        expand_canvas: bool = False,
+    ) -> None:
+        """Rotate the gel image by a precise arbitrary angle."""
+        app.apply_rotation_precise(angle, expand_canvas)
+
+    return rotation_widget
