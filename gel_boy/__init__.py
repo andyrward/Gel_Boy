@@ -3,4 +3,4 @@
 A cross-platform application for analyzing and annotating gel electrophoresis images.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

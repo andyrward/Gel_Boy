@@ -1,6 +1,6 @@
 # Gel_Boy
 
-A cross-platform gel electrophoresis image analysis and annotation tool built with Python and PyQt6.
+A cross-platform gel electrophoresis image analysis and annotation tool built with Python and [napari](https://napari.org).
 
 ## Overview
 
@@ -13,12 +13,15 @@ Gel_Boy is a desktop application designed to help researchers analyze gel electr
 - **Annotation**: Add labels, markers, and notes to gel images
 - **Export**: Export results to CSV, Excel, and annotated images
 
-## Features (Planned)
+## Features
 
 - ✅ Cross-platform support (Windows, macOS, Linux)
-- ✅ Modern PyQt6-based user interface
-- ✅ Support for common image formats (PNG, JPEG, TIFF, BMP)
+- ✅ napari-powered viewer — robust coordinate handling, multi-layer display
+- ✅ Support for common image formats (PNG, JPEG, TIFF, BMP) including 16-bit TIFF
 - ✅ Automatic lane detection algorithms
+- ✅ Interactive lane drawing and editing via napari Shapes layer
+- ✅ Intensity profile extraction and visualization (matplotlib)
+- ✅ Peak detection and integration (scipy)
 - ✅ Band quantification and molecular weight estimation
 - ✅ Project-based workflow with save/load functionality
 - ✅ Multiple export formats for data and images
@@ -56,19 +59,22 @@ Gel_Boy uses [uv](https://github.com/astral-sh/uv) for fast, reliable dependency
 Alternatively, you can use pip:
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 python main.py
 ```
 
 ## Quick Start
 
 1. **Launch Gel_Boy**: Run `uv run python main.py`
-2. **Load an Image**: File → Open Image
-3. **Detect Lanes**: Analysis → Auto-Detect Lanes (or manually define)
-4. **Detect Bands**: Analysis → Detect Bands
-5. **Export Results**: File → Export → CSV/Excel
+2. **Load an Image**: Drag a gel image onto the napari canvas, or use `File → Open…`
+3. **Detect Lanes**: Click **Detect Lanes** in the right dock widget (or press `Ctrl+L`)
+4. **Draw Lanes Manually**: Press `D` to enter rectangle-drawing mode on the *Lanes* layer
+5. **Calculate Profiles**: Click **Calculate Profiles** (or press `Ctrl+P`)
+6. **Integrate Peaks**: Click **Integrate Peaks** in the *Peak Integration* dock widget
+7. **Export Results**: Use napari's built-in export options, or File → Export from the menu
 
-For detailed instructions, see the [User Guide](docs/user_guide.md).
+For detailed instructions, see the [User Guide](docs/user_guide.md) and the
+[Napari Migration Guide](docs/NAPARI_MIGRATION.md).
 
 ## Development
 
@@ -78,8 +84,12 @@ For detailed instructions, see the [User Guide](docs/user_guide.md).
 Gel_Boy/
 ├── gel_boy/           # Main package
 │   ├── gui/          # GUI components
-│   ├── core/         # Analysis algorithms
-│   ├── models/       # Data models
+│   │   ├── napari_main.py    # GelBoyNapariApp (napari viewer)
+│   │   ├── napari_widgets.py # magicgui dock widgets
+│   │   ├── napari_utils.py   # Coordinate conversion helpers
+│   │   └── main_window.py    # Legacy PyQt6 window (--legacy flag)
+│   ├── core/         # Analysis algorithms (unchanged)
+│   ├── models/       # Data models (unchanged)
 │   ├── io/           # I/O operations
 │   └── utils/        # Utilities
 ├── tests/            # Test suite
@@ -110,6 +120,9 @@ uv run pytest
 # Run specific test file
 uv run pytest tests/test_lane_detection.py
 
+# Run napari integration tests
+uv run pytest tests/test_napari_integration.py
+
 # Run with coverage
 uv run pytest --cov=gel_boy
 ```
@@ -129,12 +142,18 @@ uv run mypy gel_boy/
 ## Dependencies
 
 - **Python**: >= 3.12
-- **PyQt6**: GUI framework
+- **napari**: Image viewer (replaces PyQt6 as primary GUI)
+- **magicgui**: Dock-widget creation
 - **NumPy**: Numerical computing
-- **Pillow**: Image processing
-- **pytest**: Testing framework
+- **Pillow**: Image loading
+- **matplotlib**: Profile plotting
+- **scikit-image**: Image analysis utilities
+- **scipy**: Peak detection and integration
 
-See `pyproject.toml` for complete dependency list.
+See `pyproject.toml` for the complete dependency list.
+
+> **Legacy mode**: To use the old PyQt6 interface, install the `legacy` extra
+> (`pip install -e ".[legacy]"`) and run `python main.py --legacy`.
 
 ## Contributing
 
@@ -155,6 +174,7 @@ Please ensure:
 
 - [User Guide](docs/user_guide.md) - How to use Gel_Boy
 - [API Reference](docs/api_reference.md) - Developer API documentation
+- [Napari Migration Guide](docs/NAPARI_MIGRATION.md) - v0.1 → v0.2 migration notes
 
 ## License
 
@@ -166,7 +186,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Built with PyQt6
+- Built with [napari](https://napari.org)
 - Inspired by the needs of gel electrophoresis researchers
 - Thanks to all contributors
 
@@ -179,15 +199,17 @@ For issues, questions, or suggestions:
 
 ## Roadmap
 
-### Version 0.1.0 (Current)
+### Version 0.1.0
 - ✅ Basic project structure
 - ✅ Core data models
 - ✅ Skeleton GUI framework
 
-### Version 0.2.0 (Planned)
-- [ ] Image loading and display
-- [ ] Basic lane detection
-- [ ] Intensity profile visualization
+### Version 0.2.0 (Current)
+- ✅ napari-based image viewer (fixes coordinate bugs)
+- ✅ Lane detection + interactive lane drawing
+- ✅ Intensity profile visualization
+- ✅ Peak integration with scipy
+- ✅ Image operations (rotate, flip, invert)
 
 ### Version 0.3.0 (Planned)
 - [ ] Band detection algorithms
