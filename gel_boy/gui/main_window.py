@@ -509,13 +509,21 @@ class MainWindow(QMainWindow):
             else:
                 color = (0, 0, 0)
             
-            # Apply rotation
-            self.image_viewer.apply_transformation(
-                rotate_image_precise,
-                angle,
-                expand,
-                color
-            )
+            try:
+                # Apply rotation
+                self.image_viewer.apply_transformation(
+                    rotate_image_precise,
+                    angle,
+                    expand,
+                    color
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "Rotation Failed",
+                    f"Could not rotate the image:\n{exc}",
+                )
+                return
             
             # Update histogram after transformation
             current_image = self.image_viewer.get_current_image()
@@ -679,6 +687,14 @@ class MainWindow(QMainWindow):
             overlay.lane_modified.connect(self._on_overlay_lane_modified)
             overlay.lane_selected.connect(self._on_overlay_lane_selected)
             self._overlay_connected = True
+
+        if checked:
+            self.status_bar.showMessage(
+                "Lane draw mode: click and drag to draw a lane rectangle. "
+                "Press Ctrl+Shift+L again to exit."
+            )
+        else:
+            self.status_bar.showMessage("Lane draw mode deactivated.", 3000)
 
     def _on_edit_lane_toggled(self, checked: bool) -> None:
         """Toggle lane editing mode (drag to move/resize lanes)."""

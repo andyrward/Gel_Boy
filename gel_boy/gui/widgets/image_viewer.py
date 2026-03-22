@@ -89,61 +89,43 @@ class ImageViewer(QGraphicsView):
         if self.current_image is None:
             return
 
-        # Handle 16-bit images with windowing
-        if self.current_image.mode in ('I', 'I;16'):
-            # Convert 16-bit to 8-bit for display using windowing
-            data = np.array(self.current_image, dtype=np.float32)
-            
-            # Apply windowing: map [display_min, display_max] to [0, 255]
-            data = np.clip(data, self.display_min, self.display_max)
-            if self.display_max > self.display_min:
-                data = ((data - self.display_min) / (self.display_max - self.display_min) * 255)
-            data = data.astype(np.uint8)
-            
-            # Convert to QImage as grayscale
-            qimage = QImage(
-                data.tobytes(),
-                data.shape[1],
-                data.shape[0],
-                data.shape[1],
-                QImage.Format.Format_Grayscale8,
-            )
-            qimage = qimage.copy()  # Make a deep copy to own the data
-        # Convert PIL Image to QPixmap
-        elif self.current_image.mode == "RGB":
-            data = self.current_image.tobytes("raw", "RGB")
-            qimage = QImage(
-                data,
-                self.current_image.width,
-                self.current_image.height,
-                self.current_image.width * 3,
-                QImage.Format.Format_RGB888,
-            )
-            qimage = qimage.copy()  # Make a deep copy to own the data
-        elif self.current_image.mode == "L":
-            data = self.current_image.tobytes("raw", "L")
-            qimage = QImage(
-                data,
-                self.current_image.width,
-                self.current_image.height,
-                self.current_image.width,
-                QImage.Format.Format_Grayscale8,
-            )
-            qimage = qimage.copy()  # Make a deep copy to own the data
-        else:
-            # Convert to RGB if other format
-            img_rgb = self.current_image.convert("RGB")
-            data = img_rgb.tobytes("raw", "RGB")
-            qimage = QImage(
-                data,
-                img_rgb.width,
-                img_rgb.height,
-                img_rgb.width * 3,
-                QImage.Format.Format_RGB888,
-            )
-            qimage = qimage.copy()  # Make a deep copy to own the data
+        try:
+            img = self.current_image
+
+            # Validate image dimensions
+            if img.width <= 0 or img.height <= 0:
+                raise ValueError(
+                    f"Invalid image dimensions: {img.width}x{img.height}"
+                )
+
+            qimage = self._pil_to_qimage(img)
+
+            if qimage is None or qimage.isNull():
+                raise RuntimeError(
+                    f"QImage conversion produced a null image "
+                    f"(mode={img.mode}, size={img.size})"
+                )
+
+        except Exception as exc:
+            print(f"[ImageViewer] update_display error: {exc}")
+            # Attempt a safe fallback: convert to RGB and retry once
+            try:
+                fallback = self.current_image.convert("RGB")
+                qimage = self._pil_to_qimage(fallback)
+                if qimage is None or qimage.isNull():
+                    print("[ImageViewer] Fallback RGB conversion also failed – "
+                          "display not updated.")
+                    return
+            except Exception as exc2:
+                print(f"[ImageViewer] Fallback conversion failed: {exc2}")
+                return
 
         pixmap = QPixmap.fromImage(qimage)
+
+        if pixmap.isNull():
+            print("[ImageViewer] QPixmap.fromImage returned a null pixmap – "
+                  "display not updated.")
+            return
 
         # Update or create pixmap item
         if self.pixmap_item is None:
@@ -153,6 +135,83 @@ class ImageViewer(QGraphicsView):
 
         self.scene.setSceneRect(self.pixmap_item.boundingRect())
         self._update_overlay_transform()
+
+    def _pil_to_qimage(self, img: Image.Image) -> Optional[QImage]:
+        """Convert a PIL Image to a QImage.
+
+        Returns a deep-copied QImage that owns its data, or ``None`` on
+        failure.
+        """
+        mode = img.mode
+
+        # Handle 16-bit images with windowing
+        if mode in ('I', 'I;16'):
+            data = np.array(img, dtype=np.float32)
+
+            # Apply windowing: map [display_min, display_max] to [0, 255]
+            data = np.clip(data, self.display_min, self.display_max)
+            if self.display_max > self.display_min:
+                data = (
+                    (data - self.display_min)
+                    / (self.display_max - self.display_min)
+                    * 255
+                )
+            data = data.astype(np.uint8)
+
+            # Keep bytes in a named variable so they are not GC'd before
+            # QImage makes its own copy of the data.
+            raw_bytes = data.tobytes()
+            qimage = QImage(
+                raw_bytes,
+                data.shape[1],
+                data.shape[0],
+                data.shape[1],
+                QImage.Format.Format_Grayscale8,
+            )
+
+        elif mode == "RGB":
+            raw_bytes = img.tobytes("raw", "RGB")
+            qimage = QImage(
+                raw_bytes,
+                img.width,
+                img.height,
+                img.width * 3,
+                QImage.Format.Format_RGB888,
+            )
+
+        elif mode == "L":
+            raw_bytes = img.tobytes("raw", "L")
+            qimage = QImage(
+                raw_bytes,
+                img.width,
+                img.height,
+                img.width,
+                QImage.Format.Format_Grayscale8,
+            )
+
+        elif mode == "RGBA":
+            raw_bytes = img.tobytes("raw", "RGBA")
+            qimage = QImage(
+                raw_bytes,
+                img.width,
+                img.height,
+                img.width * 4,
+                QImage.Format.Format_RGBA8888,
+            )
+
+        else:
+            # Convert to RGB for all other modes
+            img_rgb = img.convert("RGB")
+            raw_bytes = img_rgb.tobytes("raw", "RGB")
+            qimage = QImage(
+                raw_bytes,
+                img_rgb.width,
+                img_rgb.height,
+                img_rgb.width * 3,
+                QImage.Format.Format_RGB888,
+            )
+
+        return qimage.copy()  # Deep copy so QImage owns its data
 
     def set_zoom(self, level: float) -> None:
         """Set the zoom level.
@@ -374,6 +433,10 @@ class ImageViewer(QGraphicsView):
         """
         overlay = self.get_lane_overlay()
         overlay.setVisible(visible)
+        if visible:
+            # Ensure the overlay is on top of all other viewport children so
+            # that it receives mouse events correctly.
+            overlay.raise_()
 
     def set_lane_drag_mode(self, drawing_active: bool) -> None:
         """Enable or disable panning while lane draw/edit mode is active.
@@ -389,8 +452,13 @@ class ImageViewer(QGraphicsView):
         """
         if drawing_active:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            # Ensure the overlay is raised so it receives mouse events
+            if self._lane_overlay is not None:
+                self._lane_overlay.raise_()
         else:
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.unsetCursor()
 
     def _update_overlay_transform(self) -> None:
         """Update the overlay's coordinate transform to match current zoom/pan."""
