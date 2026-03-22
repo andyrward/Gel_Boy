@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRect, QPoint, QSize
 from PyQt6.QtGui import QPixmap, QPainter, QImage, QWheelEvent, QMouseEvent, QCursor
 from PIL import Image
 import numpy as np
+from gel_boy.gui.widgets.lane_overlay import MODE_DRAW as _LANE_MODE_DRAW, MODE_EDIT as _LANE_MODE_EDIT
 
 # Viewer interaction modes
 MODE_CROP = "crop"
@@ -272,6 +273,16 @@ class ImageViewer(QGraphicsView):
         Args:
             event: Mouse event
         """
+        # When the lane overlay is in draw/edit mode, let it handle events.
+        if self._lane_overlay is not None and self._lane_overlay.isVisible():
+            if self._lane_overlay.mode in (_LANE_MODE_DRAW, _LANE_MODE_EDIT):
+                # Still update the position display for the status bar.
+                if self.pixmap_item is not None:
+                    scene_pos = self.mapToScene(event.pos())
+                    if self.pixmap_item.contains(scene_pos):
+                        self.mouse_moved.emit(int(scene_pos.x()), int(scene_pos.y()))
+                return
+
         if self._crop_mode and self._crop_start is not None:
             # Update rubber band selection
             if self._crop_rubber_band is not None:
@@ -299,6 +310,11 @@ class ImageViewer(QGraphicsView):
         Args:
             event: Mouse event
         """
+        # When the lane overlay is in draw/edit mode, let it handle events.
+        if self._lane_overlay is not None and self._lane_overlay.isVisible():
+            if self._lane_overlay.mode in (_LANE_MODE_DRAW, _LANE_MODE_EDIT):
+                return
+
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton:
             self._crop_start = event.pos()
             if self._crop_rubber_band is None:
@@ -316,6 +332,11 @@ class ImageViewer(QGraphicsView):
         Args:
             event: Mouse event
         """
+        # When the lane overlay is in draw/edit mode, let it handle events.
+        if self._lane_overlay is not None and self._lane_overlay.isVisible():
+            if self._lane_overlay.mode in (_LANE_MODE_DRAW, _LANE_MODE_EDIT):
+                return
+
         if (
             self._crop_mode
             and self._crop_start is not None
