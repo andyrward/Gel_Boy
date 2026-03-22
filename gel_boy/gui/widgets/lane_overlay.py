@@ -224,15 +224,18 @@ class LaneOverlay(QWidget):
 
         if event.button() == Qt.MouseButton.RightButton:
             self._show_context_menu(pos)
+            event.accept()
             return
 
         if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
             return
 
         if self.mode == MODE_DRAW:
             self._drawing = True
             self._draw_start = pos
             self._draw_current = pos
+            event.accept()
 
         elif self.mode == MODE_EDIT:
             lane_idx = self._lane_at_point(pos)
@@ -255,6 +258,7 @@ class LaneOverlay(QWidget):
                 self._selected_lane_idx = -1
                 self._drag_mode = None
             self.update()
+            event.accept()
 
         else:  # VIEW mode
             lane_idx = self._lane_at_point(pos)
@@ -262,6 +266,7 @@ class LaneOverlay(QWidget):
                 self._selected_lane_idx = lane_idx
                 self.lane_selected.emit(lane_idx)
                 self.update()
+            event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Handle mouse move."""
@@ -270,9 +275,11 @@ class LaneOverlay(QWidget):
         if self.mode == MODE_DRAW and self._drawing:
             self._draw_current = pos
             self.update()
+            event.accept()
 
         elif self.mode == MODE_EDIT and self._drag_mode and self._drag_start:
             if self._selected_lane_idx < 0 or self._selected_lane_idx >= len(self.lanes):
+                event.accept()
                 return
 
             lane = self.lanes[self._selected_lane_idx]
@@ -301,6 +308,7 @@ class LaneOverlay(QWidget):
 
             self.lane_modified.emit(self._selected_lane_idx, lane)
             self.update()
+            event.accept()
 
         else:
             # Update hover state
@@ -320,10 +328,12 @@ class LaneOverlay(QWidget):
                 self.setCursor(Qt.CursorShape.CrossCursor)
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Handle mouse release."""
         if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
             return
 
         if self.mode == MODE_DRAW and self._drawing:
@@ -333,11 +343,18 @@ class LaneOverlay(QWidget):
             self._draw_start = None
             self._draw_current = None
             self.update()
+            event.accept()
 
         elif self.mode == MODE_EDIT and self._drag_mode:
             self._drag_mode = None
             self._drag_start = None
             self._drag_lane_original = None
+            event.accept()
+
+        else:
+            # Left-button release in VIEW mode (or DRAW/EDIT when no active
+            # operation) – accept to prevent propagation to the parent viewport.
+            event.accept()
 
     def _finalize_draw(self, start: QPoint, end: QPoint) -> None:
         """Create a lane from drawn rectangle."""
