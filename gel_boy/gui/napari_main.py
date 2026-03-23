@@ -143,6 +143,8 @@ class GelBoyNapariApp:
         """Toggle rectangle-drawing mode on the Lanes layer."""
         if self._LANES_LAYER in self.viewer.layers:
             layer = self.viewer.layers[self._LANES_LAYER]
+            # Ensure the layer is selected/active
+            self.viewer.layers.selection.active = layer
             if layer.mode == "add_rectangle":
                 layer.mode = "pan_zoom"
             else:
